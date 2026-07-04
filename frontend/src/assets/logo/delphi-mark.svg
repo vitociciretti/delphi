@@ -1,0 +1,37 @@
+<svg width="500" height="500" viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Delphi logo">
+  <!-- Temple pediment silhouette (the Oracle's seat) -->
+  <path d="M60 400 L250 90 L440 400 Z" stroke="#000000" stroke-width="3" fill="none"/>
+  <line x1="60" y1="400" x2="440" y2="400" stroke="#000000" stroke-width="3"/>
+
+  <!-- Columns -->
+  <g stroke="#000000" stroke-width="2">
+    <line x1="110" y1="400" x2="110" y2="345"/>
+    <line x1="160" y1="400" x2="160" y2="300"/>
+    <line x1="210" y1="400" x2="210" y2="255"/>
+    <line x1="290" y1="400" x2="290" y2="255"/>
+    <line x1="340" y1="400" x2="340" y2="300"/>
+    <line x1="390" y1="400" x2="390" y2="345"/>
+  </g>
+
+  <!-- Swarm of agent nodes converging on the apex (many agents, one emergent answer) -->
+  <g stroke="#000000" stroke-width="1" opacity="0.55">
+    <line x1="110" y1="345" x2="250" y2="90"/>
+    <line x1="160" y1="300" x2="250" y2="90"/>
+    <line x1="210" y1="255" x2="250" y2="90"/>
+    <line x1="290" y1="255" x2="250" y2="90"/>
+    <line x1="340" y1="300" x2="250" y2="90"/>
+    <line x1="390" y1="345" x2="250" y2="90"/>
+  </g>
+  <g fill="#000000">
+    <circle cx="110" cy="345" r="5"/>
+    <circle cx="160" cy="300" r="5"/>
+    <circle cx="210" cy="255" r="5"/>
+    <circle cx="290" cy="255" r="5"/>
+    <circle cx="340" cy="300" r="5"/>
+    <circle cx="390" cy="345" r="5"/>
+  </g>
+
+  <!-- The apex: single emergent signal, in the brand orange -->
+  <circle cx="250" cy="90" r="14" fill="#FF4500"/>
+  <circle cx="250" cy="90" r="24" stroke="#FF4500" stroke-width="1.5" opacity="0.5"/>
+</svg>

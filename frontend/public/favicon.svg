@@ -1,0 +1,6 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Delphi">
+  <rect width="64" height="64" fill="#000000"/>
+  <path d="M12 46 L32 14 L52 46 Z" stroke="#FFFFFF" stroke-width="3" fill="none"/>
+  <line x1="12" y1="46" x2="52" y2="46" stroke="#FFFFFF" stroke-width="3"/>
+  <circle cx="32" cy="14" r="5" fill="#FF4500"/>
+</svg>
