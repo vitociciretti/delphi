@@ -12,8 +12,10 @@ from . import report_bp
 from ..config import Config
 from ..services.report_agent import ReportAgent, ReportManager, ReportStatus
 from ..services.simulation_manager import SimulationManager
+from ..services.zep_tools import ZepToolsService
 from ..models.project import ProjectManager
 from ..models.task import TaskManager, TaskStatus
+from ..utils.llm_creds import creds_from_request
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 
@@ -123,6 +125,8 @@ def generate_report():
         
         # Capture locale before spawning background thread
         current_locale = get_locale()
+        # BYO-key：捕获本次请求的凭据（线程内无法访问 request）
+        creds = creds_from_request()
 
         # 定义后台任务
         def run_generate():
@@ -135,12 +139,15 @@ def generate_report():
                     message=t('api.initReportAgent')
                 )
                 
-                # 创建Report Agent
+                # 创建Report Agent（使用本次请求携带的 LLM/Zep 凭据）
+                llm_client = creds.to_llm_client()
                 agent = ReportAgent(
                     graph_id=graph_id,
                     simulation_id=simulation_id,
                     simulation_requirement=simulation_requirement,
-                    seed_source=getattr(project, "seed_source", "uploaded")
+                    seed_source=getattr(project, "seed_source", "uploaded"),
+                    llm_client=llm_client,
+                    zep_tools=ZepToolsService(api_key=creds.zep_api_key, llm_client=llm_client),
                 )
                 
                 # 进度回调
@@ -541,12 +548,16 @@ def chat_with_report_agent():
             }), 400
         
         simulation_requirement = project.simulation_requirement or ""
-        
-        # 创建Agent并进行对话
+
+        # 创建Agent并进行对话（使用本次请求携带的 LLM/Zep 凭据）
+        creds = creds_from_request()
+        llm_client = creds.to_llm_client()
         agent = ReportAgent(
             graph_id=graph_id,
             simulation_id=simulation_id,
-            simulation_requirement=simulation_requirement
+            simulation_requirement=simulation_requirement,
+            llm_client=llm_client,
+            zep_tools=ZepToolsService(api_key=creds.zep_api_key, llm_client=llm_client),
         )
         
         result = agent.chat(message=message, chat_history=chat_history)

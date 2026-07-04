@@ -4,7 +4,7 @@
       <div class="set-header">
         <div>
           <div class="set-title">Model &amp; API key</div>
-          <div class="set-sub">Bring your own LLM. Any OpenAI-compatible provider works — free local, free tier, or a paid key.</div>
+          <div class="set-sub">Bring your own keys. Any OpenAI-compatible provider works — free local, free tier, or a paid key. Keys stay in this browser and are never saved on the server.</div>
         </div>
         <button class="set-close" @click="$emit('close')">×</button>
       </div>
@@ -46,11 +46,30 @@
           autocomplete="off"
         />
 
+        <!-- Zep API key (memory graph) -->
+        <label class="field-label">
+          Zep API key
+          <span class="opt-tag">memory graph — needed to build/query graphs</span>
+        </label>
+        <input
+          class="field-input mono"
+          type="password"
+          v-model="zepApiKey"
+          placeholder="z_…"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <div class="provider-note">
+          <span class="cost-tag free-tier">BRING KEY</span>
+          <span>Delphi stores no keys — get a free Zep key and it stays in this browser only.</span>
+          <a href="https://www.getzep.com/" target="_blank" class="note-link">Get Zep key ↗</a>
+        </div>
+
         <div v-if="testResult" class="test-result" :class="{ ok: testResult.ok, err: !testResult.ok }">
           <span v-if="testResult.ok">✓ Connected — model replied “{{ testResult.reply }}”</span>
           <span v-else>✕ {{ testResult.error }}</span>
         </div>
-        <div v-if="saved" class="test-result ok">✓ Saved. The whole pipeline will use this now.</div>
+        <div v-if="saved" class="test-result ok">✓ Saved to this browser. Sent with each request; never stored on the server.</div>
       </div>
 
       <div class="set-footer">
@@ -69,7 +88,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getLlmSettings, saveLlmSettings, testLlmSettings } from '../api/settings'
+import { loadLocalCreds, saveLocalCreds, testLlmSettings } from '../api/settings'
 
 const emit = defineEmits(['close', 'saved'])
 
@@ -112,7 +131,7 @@ const providerId = ref('ollama')
 const baseUrl = ref('')
 const model = ref('')
 const apiKey = ref('')
-const hasSavedKey = ref(false)
+const zepApiKey = ref('')
 
 const testing = ref(false)
 const saving = ref(false)
@@ -123,7 +142,6 @@ const current = computed(() => PROVIDERS.find(p => p.id === providerId.value))
 const busy = computed(() => testing.value || saving.value)
 const canSave = computed(() => baseUrl.value.trim() && model.value.trim())
 const keyPlaceholder = computed(() => {
-  if (hasSavedKey.value && !apiKey.value) return '•••• (saved — leave blank to keep)'
   if (current.value && !current.value.needsKey) return 'not required'
   return 'sk-…'
 })
@@ -154,24 +172,20 @@ const doTest = async () => {
   }
 }
 
-const doSave = async () => {
+const doSave = () => {
+  // BYO-key：只写入浏览器 sessionStorage，不发往服务器。
   saving.value = true
   saved.value = false
   try {
-    const res = await saveLlmSettings({
+    const data = saveLocalCreds({
       provider: providerId.value,
       api_key: apiKey.value,
       base_url: baseUrl.value,
       model: model.value,
+      zep_api_key: zepApiKey.value,
     })
-    if (res.success) {
-      saved.value = true
-      hasSavedKey.value = res.data.has_key
-      apiKey.value = ''
-      emit('saved', res.data)
-    } else {
-      testResult.value = { ok: false, error: res.error }
-    }
+    saved.value = true
+    emit('saved', data)
   } catch (e) {
     testResult.value = { ok: false, error: e.message }
   } finally {
@@ -179,26 +193,19 @@ const doSave = async () => {
   }
 }
 
-onMounted(async () => {
-  try {
-    const res = await getLlmSettings()
-    if (res.success) {
-      const d = res.data
-      hasSavedKey.value = d.has_key
-      if (d.provider && PROVIDERS.find(p => p.id === d.provider)) {
-        providerId.value = d.provider
-      } else {
-        // Infer provider from a saved base_url, else Custom.
-        const match = PROVIDERS.find(p => p.base_url && d.base_url && d.base_url.startsWith(p.base_url.replace(/\/$/, '')))
-        providerId.value = match ? match.id : 'custom'
-      }
-      baseUrl.value = d.base_url || (current.value?.base_url ?? '')
-      model.value = d.model || (current.value?.model ?? '')
-    }
-  } catch (e) {
-    // fall back to defaults
-    onProviderChange()
+onMounted(() => {
+  // 从 sessionStorage 载入本浏览器已保存的凭据。
+  const d = loadLocalCreds()
+  if (d.provider && PROVIDERS.find(p => p.id === d.provider)) {
+    providerId.value = d.provider
+  } else if (d.base_url) {
+    const match = PROVIDERS.find(p => p.base_url && d.base_url.startsWith(p.base_url.replace(/\/$/, '')))
+    providerId.value = match ? match.id : 'custom'
   }
+  baseUrl.value = d.base_url || (current.value?.base_url ?? '')
+  model.value = d.model || (current.value?.model ?? '')
+  apiKey.value = d.api_key || ''
+  zepApiKey.value = d.zep_api_key || ''
 })
 </script>
 

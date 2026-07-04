@@ -14,6 +14,7 @@ from ..services.ontology_generator import OntologyGenerator
 from ..services.graph_builder import GraphBuilderService
 from ..services.text_processor import TextProcessor
 from ..utils.file_parser import FileParser
+from ..utils.llm_creds import creds_from_request
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 from ..models.task import TaskManager, TaskStatus
@@ -234,7 +235,7 @@ def generate_ontology():
         
         # 生成本体
         logger.info("调用 LLM 生成本体定义...")
-        generator = OntologyGenerator()
+        generator = OntologyGenerator(llm_client=creds_from_request().to_llm_client())
         ontology = generator.generate(
             document_texts=document_texts,
             simulation_requirement=simulation_requirement,
@@ -299,7 +300,7 @@ def seed_chat():
         requirement = data.get('requirement', '')
 
         from ..services.seed_assistant import SeedAssistant
-        assistant = SeedAssistant()
+        assistant = SeedAssistant(llm_client=creds_from_request().to_llm_client())
         reply = assistant.chat(messages, scenario_id=scenario_id, requirement=requirement)
         return jsonify({"success": True, "data": {"reply": reply}})
     except Exception as e:
@@ -325,7 +326,7 @@ def seed_draft():
         requirement = data.get('requirement', '')
 
         from ..services.seed_assistant import SeedAssistant
-        assistant = SeedAssistant()
+        assistant = SeedAssistant(llm_client=creds_from_request().to_llm_client())
         draft = assistant.draft(messages, scenario_id=scenario_id, requirement=requirement)
         return jsonify({"success": True, "data": {"draft": draft}})
     except Exception as e:
@@ -364,9 +365,10 @@ def build_graph():
     try:
         logger.info("=== 开始构建图谱 ===")
         
-        # 检查配置
+        # 检查配置：BYO-key 模式下 Zep 密钥来自请求 header，而非服务器配置
+        creds = creds_from_request()
         errors = []
-        if not Config.ZEP_API_KEY:
+        if not creds.zep_api_key:
             errors.append(t('api.zepApiKeyMissing'))
         if errors:
             logger.error(f"配置错误: {errors}")
@@ -467,8 +469,8 @@ def build_graph():
                     message=t('progress.initGraphService')
                 )
                 
-                # 创建图谱构建服务
-                builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+                # 创建图谱构建服务（使用本次请求携带的 Zep 密钥）
+                builder = GraphBuilderService(api_key=creds.zep_api_key)
                 
                 # 分块
                 task_manager.update_task(
@@ -653,13 +655,14 @@ def get_graph_data(graph_id: str):
     获取图谱数据（节点和边）
     """
     try:
-        if not Config.ZEP_API_KEY:
+        creds = creds_from_request()
+        if not creds.zep_api_key:
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
             }), 500
-        
-        builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+
+        builder = GraphBuilderService(api_key=creds.zep_api_key)
         graph_data = builder.get_graph_data(graph_id)
         
         return jsonify({
@@ -681,13 +684,14 @@ def delete_graph(graph_id: str):
     删除Zep图谱
     """
     try:
-        if not Config.ZEP_API_KEY:
+        creds = creds_from_request()
+        if not creds.zep_api_key:
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
             }), 500
-        
-        builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+
+        builder = GraphBuilderService(api_key=creds.zep_api_key)
         builder.delete_graph(graph_id)
         
         return jsonify({

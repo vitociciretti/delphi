@@ -487,14 +487,15 @@ class ZepGraphMemoryManager:
     _lock = threading.Lock()
     
     @classmethod
-    def create_updater(cls, simulation_id: str, graph_id: str) -> ZepGraphMemoryUpdater:
+    def create_updater(cls, simulation_id: str, graph_id: str, api_key: str = None) -> ZepGraphMemoryUpdater:
         """
         为模拟创建图谱记忆更新器
-        
+
         Args:
             simulation_id: 模拟ID
             graph_id: Zep图谱ID
-            
+            api_key: BYO-key，本次请求携带的 Zep 密钥
+
         Returns:
             ZepGraphMemoryUpdater实例
         """
@@ -502,8 +503,8 @@ class ZepGraphMemoryManager:
             # 如果已存在，先停止旧的
             if simulation_id in cls._updaters:
                 cls._updaters[simulation_id].stop()
-            
-            updater = ZepGraphMemoryUpdater(graph_id)
+
+            updater = ZepGraphMemoryUpdater(graph_id, api_key=api_key)
             updater.start()
             cls._updaters[simulation_id] = updater
             

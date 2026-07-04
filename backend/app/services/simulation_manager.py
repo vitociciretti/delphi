@@ -261,7 +261,8 @@ class SimulationManager:
         defined_entity_types: Optional[List[str]] = None,
         use_llm_for_profiles: bool = True,
         progress_callback: Optional[callable] = None,
-        parallel_profile_count: int = 3
+        parallel_profile_count: int = 3,
+        creds=None  # LlmCreds — per-request BYO keys; must be provided in public mode
     ) -> SimulationState:
         """
         准备模拟环境（全程自动化）
@@ -288,7 +289,13 @@ class SimulationManager:
         state = self._load_simulation_state(simulation_id)
         if not state:
             raise ValueError(f"模拟不存在: {simulation_id}")
-        
+
+        # BYO-key：从本次请求的凭据派生 LLM / Zep 密钥（公开模式下必须提供）
+        _llm_key = creds.api_key if creds else None
+        _llm_base = creds.base_url if creds else None
+        _llm_model = creds.model if creds else None
+        _zep_key = creds.zep_api_key if creds else None
+
         try:
             state.status = SimulationStatus.PREPARING
             self._save_simulation_state(state)
@@ -299,8 +306,8 @@ class SimulationManager:
             if progress_callback:
                 progress_callback("reading", 0, t('progress.connectingZepGraph'))
             
-            reader = ZepEntityReader()
-            
+            reader = ZepEntityReader(api_key=_zep_key)
+
             if progress_callback:
                 progress_callback("reading", 30, t('progress.readingNodeData'))
             
@@ -339,7 +346,13 @@ class SimulationManager:
                 )
             
             # 传入graph_id以启用Zep检索功能，获取更丰富的上下文
-            generator = OasisProfileGenerator(graph_id=state.graph_id)
+            generator = OasisProfileGenerator(
+                api_key=_llm_key,
+                base_url=_llm_base,
+                model_name=_llm_model,
+                zep_api_key=_zep_key,
+                graph_id=state.graph_id,
+            )
             
             def profile_progress(current, total, msg):
                 if progress_callback:
@@ -416,7 +429,11 @@ class SimulationManager:
                     total=3
                 )
             
-            config_generator = SimulationConfigGenerator()
+            config_generator = SimulationConfigGenerator(
+                api_key=_llm_key,
+                base_url=_llm_base,
+                model_name=_llm_model,
+            )
             
             if progress_callback:
                 progress_callback(

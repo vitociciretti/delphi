@@ -316,7 +316,9 @@ class SimulationRunner:
         platform: str = "parallel",  # twitter / reddit / parallel
         max_rounds: int = None,  # 最大模拟轮数（可选，用于截断过长的模拟）
         enable_graph_memory_update: bool = False,  # 是否将活动更新到Zep图谱
-        graph_id: str = None  # Zep图谱ID（启用图谱更新时必需）
+        graph_id: str = None,  # Zep图谱ID（启用图谱更新时必需）
+        llm_env: dict = None,  # BYO-key：注入子进程的 LLM/Zep 环境变量（本次请求专属）
+        zep_api_key: str = None  # BYO-key：图谱记忆更新器使用的 Zep 密钥
     ) -> SimulationRunState:
         """
         启动模拟
@@ -375,7 +377,7 @@ class SimulationRunner:
                 raise ValueError("启用图谱记忆更新时必须提供 graph_id")
             
             try:
-                ZepGraphMemoryManager.create_updater(simulation_id, graph_id)
+                ZepGraphMemoryManager.create_updater(simulation_id, graph_id, api_key=zep_api_key)
                 cls._graph_memory_enabled[simulation_id] = True
                 logger.info(f"已启用图谱记忆更新: simulation_id={simulation_id}, graph_id={graph_id}")
             except Exception as e:
@@ -429,7 +431,12 @@ class SimulationRunner:
             
             # 设置子进程环境变量，确保 Windows 上使用 UTF-8 编码
             # 这可以修复第三方库（如 OASIS）读取文件时未指定编码的问题
-            env = os.environ.copy()
+            # BYO-key：先剥离父进程可能存在的 LLM/Zep 密钥（避免泄漏到用户的子进程），
+            # 再注入本次请求专属的凭据。
+            from ..utils.llm_creds import child_env_without_inherited_keys
+            env = child_env_without_inherited_keys(os.environ.copy())
+            if llm_env:
+                env.update(llm_env)
             env['PYTHONUTF8'] = '1'  # Python 3.7+ 支持，让所有 open() 默认使用 UTF-8
             env['PYTHONIOENCODING'] = 'utf-8'  # 确保 stdout/stderr 使用 UTF-8
             

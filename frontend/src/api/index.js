@@ -10,10 +10,30 @@ const service = axios.create({
   }
 })
 
+// BYO-key：每个请求携带用户在浏览器 sessionStorage 中的凭据。
+// header 名称需与后端 utils/llm_creds.py 保持一致。服务器不保存任何密钥。
+const CREDS_KEY = 'delphi.llm_creds'
+
+function attachCredHeaders(config) {
+  try {
+    const raw = sessionStorage.getItem(CREDS_KEY)
+    if (!raw) return
+    const c = JSON.parse(raw)
+    if (c.api_key) config.headers['X-LLM-Api-Key'] = c.api_key
+    if (c.base_url) config.headers['X-LLM-Base-Url'] = c.base_url
+    if (c.model) config.headers['X-LLM-Model'] = c.model
+    if (c.provider) config.headers['X-LLM-Provider'] = c.provider
+    if (c.zep_api_key) config.headers['X-Zep-Api-Key'] = c.zep_api_key
+  } catch (e) {
+    // malformed creds — ignore, request will fail closed server-side
+  }
+}
+
 // 请求拦截器
 service.interceptors.request.use(
   config => {
     config.headers['Accept-Language'] = i18n.global.locale.value
+    attachCredHeaders(config)
     return config
   },
   error => {

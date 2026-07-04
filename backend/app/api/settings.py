@@ -1,5 +1,9 @@
 """
-设置相关接口：LLM 连接配置（Bring-Your-Own-Key）。
+设置相关接口：LLM 连接测试（Bring-Your-Own-Key）。
+
+BYO-key 模式下服务器不保存任何密钥，故没有 GET/保存 接口——配置只存在于
+用户浏览器的 sessionStorage，并随每个请求以 header 携带。这里只提供一个
+无状态的连通性测试。
 """
 
 import traceback
@@ -12,40 +16,12 @@ from ..utils.logger import get_logger
 logger = get_logger('delphi.api.settings')
 
 
-@settings_bp.route('/llm', methods=['GET'])
-def get_llm_settings():
-    """获取当前 LLM 设置（api_key 掩码）。"""
-    try:
-        return jsonify({"success": True, "data": llm_settings.masked_settings()})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e),
-                        "traceback": traceback.format_exc()}), 500
-
-
-@settings_bp.route('/llm', methods=['POST'])
-def save_llm_settings():
-    """
-    保存并应用 LLM 设置。
-
-    请求（JSON）：{ provider, api_key, base_url, model }
-    未提供 api_key（或为掩码）时，保留已保存的密钥。
-    """
-    try:
-        data = request.get_json() or {}
-        if not (data.get('base_url') or '').strip():
-            return jsonify({"success": False, "error": "base_url is required"}), 400
-        if not (data.get('model') or '').strip():
-            return jsonify({"success": False, "error": "model is required"}), 400
-        saved = llm_settings.save_settings(data)
-        return jsonify({"success": True, "data": saved})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e),
-                        "traceback": traceback.format_exc()}), 500
-
-
 @settings_bp.route('/llm/test', methods=['POST'])
 def test_llm_settings():
-    """用给定配置测试连通性（不落盘）。"""
+    """用请求体给定的配置测试连通性（不落盘、不改全局状态）。
+
+    请求（JSON）：{ api_key, base_url, model }
+    """
     try:
         data = request.get_json() or {}
         result = llm_settings.test_connection(

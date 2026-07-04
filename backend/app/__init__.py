@@ -62,9 +62,8 @@ def create_app(config_class=Config):
         logger.debug(f"响应: {response.status_code}")
         return response
     
-    # 应用已持久化的 LLM 设置（若用户在设置面板中配置过）
-    from .services import llm_settings
-    llm_settings.apply_persisted_on_startup()
+    # BYO-key：不再持久化/加载 LLM 密钥。每个请求自带 header 凭据
+    # （见 utils/llm_creds.py），服务器不保存任何密钥。
 
     # 注册蓝图
     from .api import graph_bp, simulation_bp, report_bp, settings_bp
