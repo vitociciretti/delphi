@@ -193,22 +193,29 @@ const initProject = async () => {
 
 const handleNewProject = async () => {
   const pending = getPendingUpload()
-  if (!pending.isPending || pending.files.length === 0) {
-    error.value = 'No pending files found.'
-    addLog('Error: No pending files found for new project.')
+  const hasFiles = pending.files.length > 0
+  const hasSeedText = !!(pending.seedText && pending.seedText.trim())
+  if (!pending.isPending || (!hasFiles && !hasSeedText)) {
+    error.value = 'No pending seed found.'
+    addLog('Error: No pending files or drafted seed found for new project.')
     return
   }
-  
+
   try {
     loading.value = true
     currentPhase.value = 0
-    ontologyProgress.value = { message: 'Uploading and analyzing docs...' }
-    addLog('Starting ontology generation: Uploading files...')
-    
+    ontologyProgress.value = { message: 'Analyzing seed material...' }
+    addLog('Starting ontology generation...')
+
     const formData = new FormData()
-    pending.files.forEach(f => formData.append('files', f))
+    if (hasFiles) {
+      pending.files.forEach(f => formData.append('files', f))
+    } else {
+      formData.append('seed_text', pending.seedText)
+      formData.append('seed_source', pending.seedSource || 'assistant')
+    }
     formData.append('simulation_requirement', pending.simulationRequirement)
-    
+
     const res = await generateOntology(formData)
     if (res.success) {
       clearPendingUpload()

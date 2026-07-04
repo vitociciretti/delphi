@@ -164,42 +164,62 @@ def generate_ontology():
                 "error": t('api.requireSimulationRequirement')
             }), 400
         
-        # 获取上传的文件
+        # 种子来源：上传文档，或助手起草/示例文本（seed_text）
         uploaded_files = request.files.getlist('files')
-        if not uploaded_files or all(not f.filename for f in uploaded_files):
+        has_files = bool(uploaded_files) and any(f.filename for f in uploaded_files)
+        seed_text = (request.form.get('seed_text') or '').strip()
+        seed_source = request.form.get('seed_source', 'uploaded')
+        if seed_source not in ('uploaded', 'assistant', 'sample'):
+            seed_source = 'uploaded'
+
+        # 必须至少提供上传文件或种子文本之一
+        if not has_files and not seed_text:
             return jsonify({
                 "success": False,
                 "error": t('api.requireFileUpload')
             }), 400
-        
+
         # 创建项目
         project = ProjectManager.create_project(name=project_name)
         project.simulation_requirement = simulation_requirement
-        logger.info(f"创建项目: {project.project_id}")
-        
+        # 有上传文件时以上传为准；否则记录种子文本的来源
+        project.seed_source = 'uploaded' if has_files else seed_source
+        logger.info(f"创建项目: {project.project_id} (seed_source={project.seed_source})")
+
         # 保存文件并提取文本
         document_texts = []
         all_text = ""
-        
+
         for file in uploaded_files:
             if file and file.filename and allowed_file(file.filename):
                 # 保存文件到项目目录
                 file_info = ProjectManager.save_file_to_project(
-                    project.project_id, 
-                    file, 
+                    project.project_id,
+                    file,
                     file.filename
                 )
                 project.files.append({
                     "filename": file_info["original_filename"],
                     "size": file_info["size"]
                 })
-                
+
                 # 提取文本
                 text = FileParser.extract_text(file_info["path"])
                 text = TextProcessor.preprocess_text(text)
                 document_texts.append(text)
                 all_text += f"\n\n=== {file_info['original_filename']} ===\n{text}"
-        
+
+        # 无上传文件时，使用助手起草/示例的种子文本作为唯一文档
+        if not document_texts and seed_text:
+            text = TextProcessor.preprocess_text(seed_text)
+            label = {
+                'assistant': 'assistant_seed.md',
+                'sample': 'sample_seed.md',
+            }.get(project.seed_source, 'seed.md')
+            document_texts.append(text)
+            all_text += f"\n\n=== {label} ===\n{text}"
+            project.files.append({"filename": label, "size": len(text)})
+
         if not document_texts:
             ProjectManager.delete_project(project.project_id)
             return jsonify({
@@ -243,10 +263,71 @@ def generate_ontology():
                 "ontology": project.ontology,
                 "analysis_summary": project.analysis_summary,
                 "files": project.files,
-                "total_text_length": project.total_text_length
+                "total_text_length": project.total_text_length,
+                "seed_source": project.seed_source
             }
         })
-        
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
+# ============== 种子助手：无文档时对话式起草“世界状态” ==============
+
+@graph_bp.route('/seed/chat', methods=['POST'])
+def seed_chat():
+    """
+    种子助手对话（自由对话，直到用户要求起草）。
+
+    请求（JSON）：
+        {
+            "messages": [{"role": "user"|"assistant", "content": "..."}, ...],
+            "scenario_id": "financial_market",   // 可选
+            "requirement": "模拟需求描述"          // 可选
+        }
+
+    返回：{ "success": true, "data": { "reply": "..." } }
+    """
+    try:
+        data = request.get_json() or {}
+        messages = data.get('messages') or []
+        scenario_id = data.get('scenario_id')
+        requirement = data.get('requirement', '')
+
+        from ..services.seed_assistant import SeedAssistant
+        assistant = SeedAssistant()
+        reply = assistant.chat(messages, scenario_id=scenario_id, requirement=requirement)
+        return jsonify({"success": True, "data": {"reply": reply}})
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
+@graph_bp.route('/seed/draft', methods=['POST'])
+def seed_draft():
+    """
+    根据对话起草“世界状态”文档，供用户审阅/编辑/确认。
+
+    请求（JSON）：同 /seed/chat
+    返回：{ "success": true, "data": { "draft": "# ...markdown..." } }
+    """
+    try:
+        data = request.get_json() or {}
+        messages = data.get('messages') or []
+        scenario_id = data.get('scenario_id')
+        requirement = data.get('requirement', '')
+
+        from ..services.seed_assistant import SeedAssistant
+        assistant = SeedAssistant()
+        draft = assistant.draft(messages, scenario_id=scenario_id, requirement=requirement)
+        return jsonify({"success": True, "data": {"draft": draft}})
     except Exception as e:
         return jsonify({
             "success": False,

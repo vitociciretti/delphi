@@ -1013,11 +1013,14 @@ def get_simulation_history():
             project = ProjectManager.get_project(sim.project_id)
             if project and hasattr(project, 'files') and project.files:
                 sim_dict["files"] = [
-                    {"filename": f.get("filename", "未知文件")} 
+                    {"filename": f.get("filename", "未知文件")}
                     for f in project.files[:3]
                 ]
             else:
                 sim_dict["files"] = []
+
+            # 种子来源（用于在卡片上标注合成/示例世界）
+            sim_dict["seed_source"] = getattr(project, "seed_source", "uploaded") if project else "uploaded"
             
             # 获取关联的 report_id（查找该 simulation 最新的 report）
             sim_dict["report_id"] = _get_report_id_for_simulation(sim.simulation_id)

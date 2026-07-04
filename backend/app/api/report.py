@@ -139,7 +139,8 @@ def generate_report():
                 agent = ReportAgent(
                     graph_id=graph_id,
                     simulation_id=simulation_id,
-                    simulation_requirement=simulation_requirement
+                    simulation_requirement=simulation_requirement,
+                    seed_source=getattr(project, "seed_source", "uploaded")
                 )
                 
                 # 进度回调

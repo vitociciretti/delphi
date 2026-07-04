@@ -75,7 +75,13 @@
     "layoutGraph": "图谱",
     "layoutSplit": "双栏",
     "layoutWorkbench": "工作台",
-    "stepNames": ["图谱构建", "环境搭建", "开始模拟", "报告生成", "深度互动"]
+    "stepNames": [
+      "图谱构建",
+      "环境搭建",
+      "开始模拟",
+      "报告生成",
+      "深度互动"
+    ]
   },
   "step1": {
     "ontologyGeneration": "本体生成",
@@ -661,5 +667,28 @@
     "llmSelectAgentFailed": "LLM选择Agent失败，使用默认选择: {error}",
     "generateInterviewQuestionsFailed": "生成采访问题失败: {error}",
     "generateInterviewSummaryFailed": "生成采访摘要失败: {error}"
+  },
+  "seedAssistant": {
+    "entry": "没有文档？让助手帮你起草",
+    "title": "起草世界状态",
+    "subtitle": "通过对话厘清初始情境。准备好后点击“起草”，在使用前审阅文档。",
+    "requirementNeeded": "请先描述你的预测需求——助手会据此开启对话。",
+    "intro": "请描述你想模拟的世界：关键角色有哪些？初始情境是怎样的？",
+    "inputPlaceholder": "输入消息…",
+    "send": "发送",
+    "draftIt": "起草",
+    "thinking": "思考中…",
+    "drafting": "正在起草世界状态…",
+    "draftHeading": "已起草的世界状态",
+    "draftHint": "可自由审阅和编辑。这将成为构建模拟的种子。",
+    "regenerate": "重新生成",
+    "useThis": "使用这个世界",
+    "back": "返回对话",
+    "cancel": "取消",
+    "syntheticBadge": "合成种子",
+    "syntheticNote": "由助手起草——并非来自上传文档"
+  },
+  "settings": {
+    "nav": "设置"
   }
 }

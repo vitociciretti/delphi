@@ -48,7 +48,11 @@ class Project:
     simulation_requirement: Optional[str] = None
     chunk_size: int = 500
     chunk_overlap: int = 50
-    
+
+    # 种子来源: "uploaded"（用户上传文档）| "assistant"（助手起草并经用户确认）
+    # | "sample"（示例文档）。用于在界面与报告中标注世界的出处。
+    seed_source: str = "uploaded"
+
     # 错误信息
     error: Optional[str] = None
     
@@ -69,6 +73,7 @@ class Project:
             "simulation_requirement": self.simulation_requirement,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
+            "seed_source": self.seed_source,
             "error": self.error
         }
     
@@ -94,6 +99,7 @@ class Project:
             simulation_requirement=data.get('simulation_requirement'),
             chunk_size=data.get('chunk_size', 500),
             chunk_overlap=data.get('chunk_overlap', 50),
+            seed_source=data.get('seed_source', 'uploaded'),
             error=data.get('error')
         )
 

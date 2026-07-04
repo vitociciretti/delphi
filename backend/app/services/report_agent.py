@@ -21,7 +21,7 @@ from enum import Enum
 from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
-from ..utils.locale import get_language_instruction, t
+from ..utils.locale import get_language_instruction, t, get_locale
 from .zep_tools import (
     ZepToolsService, 
     SearchResult, 
@@ -887,7 +887,8 @@ class ReportAgent:
         simulation_id: str,
         simulation_requirement: str,
         llm_client: Optional[LLMClient] = None,
-        zep_tools: Optional[ZepToolsService] = None
+        zep_tools: Optional[ZepToolsService] = None,
+        seed_source: str = "uploaded"
     ):
         """
         初始化Report Agent
@@ -902,7 +903,8 @@ class ReportAgent:
         self.graph_id = graph_id
         self.simulation_id = simulation_id
         self.simulation_requirement = simulation_requirement
-        
+        self.seed_source = seed_source
+
         self.llm = llm_client or LLMClient()
         self.zep_tools = zep_tools or ZepToolsService()
         
@@ -915,7 +917,34 @@ class ReportAgent:
         self.console_logger: Optional[ReportConsoleLogger] = None
         
         logger.info(t('report.agentInitDone', graphId=graph_id, simulationId=simulation_id))
-    
+
+    def _seed_provenance_note(self) -> str:
+        """当世界并非来自用户上传文档时，返回置于报告顶部的出处说明（markdown）。"""
+        source = getattr(self, "seed_source", "uploaded")
+        if source not in ("assistant", "sample"):
+            return ""
+        zh = get_locale().startswith("zh")
+        if source == "assistant":
+            body = (
+                "📝 **合成世界（助手起草）** — 本次模拟的初始世界状态由 AI 助手根据用户"
+                "意图起草，并经用户审阅确认，而非来自外部真实文档。请将结论视为对该"
+                "设定假设的推演，而非有事实依据的预测。"
+                if zh else
+                "📝 **Synthetic world (assistant-drafted)** — the starting state of "
+                "this simulation was drafted by an AI assistant from the user's "
+                "intent and approved by the user, not sourced from external "
+                "documents. Read the findings as a rehearsal of those assumptions, "
+                "not a document-grounded forecast."
+            )
+        else:
+            body = (
+                "🧪 **示例世界** — 本次模拟基于内置示例文档，仅用于演示，并非用户的真实数据。"
+                if zh else
+                "🧪 **Sample world** — this simulation is based on a built-in example "
+                "document for demonstration, not on the user's own data."
+            )
+        return f"> {body}\n\n"
+
     def _define_tools(self) -> Dict[str, Dict[str, Any]]:
         """定义可用工具"""
         return {
@@ -1705,6 +1734,10 @@ class ReportAgent:
             
             # 使用ReportManager组装完整报告
             report.markdown_content = ReportManager.assemble_full_report(report_id, outline)
+            # 种子来源标注：非上传文档的世界，在报告顶部注明出处
+            provenance = self._seed_provenance_note()
+            if provenance:
+                report.markdown_content = provenance + report.markdown_content
             report.status = ReportStatus.COMPLETED
             report.completed_at = datetime.now().isoformat()
             

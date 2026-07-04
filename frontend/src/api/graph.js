@@ -19,6 +19,36 @@ export function generateOntology(formData) {
 }
 
 /**
+ * 种子助手：自由对话（用于无文档时协助起草“世界状态”）
+ * @param {Object} data - { messages, scenario_id, requirement }
+ * @returns {Promise}
+ */
+export function seedChat(data) {
+  return requestWithRetry(() =>
+    service({
+      url: '/api/graph/seed/chat',
+      method: 'post',
+      data
+    })
+  )
+}
+
+/**
+ * 种子助手：根据对话起草“世界状态”文档
+ * @param {Object} data - { messages, scenario_id, requirement }
+ * @returns {Promise}
+ */
+export function seedDraft(data) {
+  return requestWithRetry(() =>
+    service({
+      url: '/api/graph/seed/draft',
+      method: 'post',
+      data
+    })
+  )
+}
+
+/**
  * 构建图谱
  * @param {Object} data - 包含project_id, graph_name等
  * @returns {Promise}

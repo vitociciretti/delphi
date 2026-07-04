@@ -37,17 +37,23 @@ service.interceptors.response.use(
   },
   error => {
     console.error('Response error:', error)
-    
+
+    // 优先使用后端返回的错误信息（即使是 4xx/5xx，也常带有 { error } 说明）
+    const backendError = error.response?.data?.error
+    if (backendError) {
+      return Promise.reject(new Error(backendError))
+    }
+
     // 处理超时
     if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
-      console.error('Request timeout')
+      return Promise.reject(new Error('Request timed out.'))
     }
-    
+
     // 处理网络错误
     if (error.message === 'Network Error') {
-      console.error('Network error - please check your connection')
+      return Promise.reject(new Error('Cannot reach the backend server.'))
     }
-    
+
     return Promise.reject(error)
   }
 )

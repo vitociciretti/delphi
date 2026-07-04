@@ -77,6 +77,16 @@
           </div>
         </div>
 
+        <!-- 种子来源标注（合成/示例世界） -->
+        <div
+          v-if="project.seed_source && project.seed_source !== 'uploaded'"
+          class="seed-badge"
+          :class="project.seed_source"
+          :title="project.seed_source === 'assistant' ? $t('seedAssistant.syntheticNote') : ''"
+        >
+          {{ project.seed_source === 'assistant' ? '📝 ' + $t('seedAssistant.syntheticBadge') : '🧪 ' + $t('seedAssistant.syntheticBadge') }}
+        </div>
+
         <!-- 卡片标题（使用模拟需求的前20字作为标题） -->
         <h3 class="card-title">{{ getSimulationTitle(project.simulation_requirement) }}</h3>
 
@@ -882,6 +892,28 @@ onUnmounted(() => {
 }
 
 /* 卡片标题 */
+.seed-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+}
+.seed-badge.assistant {
+  color: #FF4500;
+  background: rgba(255, 69, 0, 0.08);
+  border-color: rgba(255, 69, 0, 0.25);
+}
+.seed-badge.sample {
+  color: #6b7280;
+  background: rgba(107, 114, 128, 0.08);
+  border-color: rgba(107, 114, 128, 0.25);
+}
+
 .card-title {
   font-family: 'Inter', -apple-system, sans-serif;
   font-size: 0.9rem;

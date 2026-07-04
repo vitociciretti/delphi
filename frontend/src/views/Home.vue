@@ -5,6 +5,9 @@
       <div class="nav-brand">DELPHI</div>
       <div class="nav-links">
         <LanguageSwitcher />
+        <button class="settings-btn" @click="showSettings = true" title="Model & API key">
+          <span class="gear">⚙</span> {{ $t('settings.nav') }}
+        </button>
         <a href="https://github.com/vitociciretti/delphi" target="_blank" class="github-link">
           {{ $t('nav.visitGithub') }} <span class="arrow">↗</span>
         </a>
@@ -165,6 +168,22 @@
                   </div>
                 </div>
               </div>
+
+              <!-- 无文档时：让助手起草“世界状态” -->
+              <button
+                v-if="files.length === 0 && !draftedSeed"
+                class="assistant-entry"
+                :disabled="loading"
+                @click="openAssistant"
+              >
+                <span class="assistant-entry-icon">📝</span>
+                {{ $t('seedAssistant.entry') }}
+              </button>
+              <div v-if="draftedSeed" class="drafted-chip">
+                <span class="drafted-badge">📝 {{ $t('seedAssistant.syntheticBadge') }}</span>
+                <span class="drafted-note">{{ $t('seedAssistant.syntheticNote') }}</span>
+                <button class="remove-btn" @click.stop="clearDraft">×</button>
+              </div>
             </div>
 
             <!-- 分割线 -->
@@ -208,6 +227,19 @@
       <!-- 历史项目数据库 -->
       <HistoryDatabase />
     </div>
+
+    <SeedAssistantModal
+      v-if="showAssistant"
+      :requirement="formData.simulationRequirement"
+      @accept="onSeedAccepted"
+      @close="showAssistant = false"
+    />
+
+    <SettingsModal
+      v-if="showSettings"
+      @close="showSettings = false"
+      @saved="showSettings = false"
+    />
   </div>
 </template>
 
@@ -216,6 +248,8 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import SeedAssistantModal from '../components/SeedAssistantModal.vue'
+import SettingsModal from '../components/SettingsModal.vue'
 
 const router = useRouter()
 
@@ -232,13 +266,39 @@ const loading = ref(false)
 const error = ref('')
 const isDragOver = ref(false)
 
+// 种子助手：起草的“世界状态”文档
+const showAssistant = ref(false)
+const draftedSeed = ref('')
+
+// 设置面板（LLM 连接）
+const showSettings = ref(false)
+
 // 文件输入引用
 const fileInput = ref(null)
 
-// 计算属性:是否可以提交
+// 计算属性:是否可以提交（需要模拟需求，且有文件或已起草的种子）
 const canSubmit = computed(() => {
-  return formData.value.simulationRequirement.trim() !== '' && files.value.length > 0
+  const hasRequirement = formData.value.simulationRequirement.trim() !== ''
+  const hasSeed = files.value.length > 0 || draftedSeed.value.trim() !== ''
+  return hasRequirement && hasSeed
 })
+
+// 打开助手（模拟需求为可选，若已填写则用于开启对话）
+const openAssistant = () => {
+  if (loading.value) return
+  error.value = ''
+  showAssistant.value = true
+}
+
+// 助手起草完成并被用户确认
+const onSeedAccepted = ({ seedText }) => {
+  draftedSeed.value = seedText
+  showAssistant.value = false
+}
+
+const clearDraft = () => {
+  draftedSeed.value = ''
+}
 
 // 触发文件选择
 const triggerFileInput = () => {
@@ -297,11 +357,15 @@ const scrollToBottom = () => {
 // 开始模拟 - 立即跳转，API调用在Process页面进行
 const startSimulation = () => {
   if (!canSubmit.value || loading.value) return
-  
-  // 存储待上传的数据
-  import('../store/pendingUpload.js').then(({ setPendingUpload }) => {
-    setPendingUpload(files.value, formData.value.simulationRequirement)
-    
+
+  // 存储待上传的数据：优先使用上传文件，否则使用助手起草的种子文档
+  import('../store/pendingUpload.js').then(({ setPendingUpload, setPendingSeedText }) => {
+    if (files.value.length > 0) {
+      setPendingUpload(files.value, formData.value.simulationRequirement)
+    } else {
+      setPendingSeedText(draftedSeed.value, formData.value.simulationRequirement, 'assistant')
+    }
+
     // 立即跳转到Process页面（使用特殊标识表示新建项目）
     router.push({
       name: 'Process',
@@ -374,6 +438,26 @@ const startSimulation = () => {
 
 .github-link:hover {
   opacity: 0.8;
+}
+
+.settings-btn {
+  color: var(--white);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.2s;
+}
+.settings-btn:hover {
+  opacity: 0.8;
+}
+.settings-btn .gear {
+  font-size: 1rem;
 }
 
 .arrow {
@@ -771,6 +855,61 @@ const startSimulation = () => {
   cursor: pointer;
   font-size: 1.2rem;
   color: #999;
+}
+
+/* 助手起草入口 */
+.assistant-entry {
+  margin-top: 10px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: none;
+  border: 1px dashed #D5D5D5;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: #666;
+  transition: all 0.15s ease;
+}
+.assistant-entry:hover:not(:disabled) {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+.assistant-entry:disabled { opacity: 0.5; cursor: not-allowed; }
+.assistant-entry-icon { font-size: 0.9rem; }
+
+.assistant-hint {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: var(--orange);
+  font-family: var(--font-mono);
+}
+
+.drafted-chip {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #E5E5E5;
+  border-radius: 6px;
+  background: #FAFAFA;
+}
+.drafted-badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--orange);
+  white-space: nowrap;
+}
+.drafted-note {
+  flex: 1;
+  font-size: 0.74rem;
+  color: #777;
 }
 
 .console-divider {

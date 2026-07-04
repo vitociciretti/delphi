@@ -75,7 +75,13 @@
     "layoutGraph": "Graph",
     "layoutSplit": "Split",
     "layoutWorkbench": "Workbench",
-    "stepNames": ["Graph Build", "Env Setup", "Run Simulation", "Report Generation", "Deep Interaction"]
+    "stepNames": [
+      "Graph Build",
+      "Env Setup",
+      "Run Simulation",
+      "Report Generation",
+      "Deep Interaction"
+    ]
   },
   "step1": {
     "ontologyGeneration": "Ontology Generation",
@@ -661,5 +667,28 @@
     "llmSelectAgentFailed": "LLM agent selection failed, using default selection: {error}",
     "generateInterviewQuestionsFailed": "Failed to generate interview questions: {error}",
     "generateInterviewSummaryFailed": "Failed to generate interview summary: {error}"
+  },
+  "seedAssistant": {
+    "entry": "No document? Draft one with the assistant",
+    "title": "Draft the state of the world",
+    "subtitle": "Chat through the starting situation. When you're ready, click “Draft it” and review the document before it's used.",
+    "requirementNeeded": "Describe your prediction requirement first — the assistant uses it to start the conversation.",
+    "intro": "Tell me about the world you want to simulate. Who are the key players, and what's the starting situation?",
+    "inputPlaceholder": "Type your message…",
+    "send": "Send",
+    "draftIt": "Draft it",
+    "thinking": "Thinking…",
+    "drafting": "Drafting the state of the world…",
+    "draftHeading": "Drafted state of the world",
+    "draftHint": "Review and edit freely. This becomes the seed your simulation is built from.",
+    "regenerate": "Regenerate",
+    "useThis": "Use this world",
+    "back": "Back to chat",
+    "cancel": "Cancel",
+    "syntheticBadge": "Synthetic seed",
+    "syntheticNote": "Drafted with assistant — not from an uploaded document"
+  },
+  "settings": {
+    "nav": "Settings"
   }
 }

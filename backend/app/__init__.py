@@ -62,11 +62,16 @@ def create_app(config_class=Config):
         logger.debug(f"响应: {response.status_code}")
         return response
     
+    # 应用已持久化的 LLM 设置（若用户在设置面板中配置过）
+    from .services import llm_settings
+    llm_settings.apply_persisted_on_startup()
+
     # 注册蓝图
-    from .api import graph_bp, simulation_bp, report_bp
+    from .api import graph_bp, simulation_bp, report_bp, settings_bp
     app.register_blueprint(graph_bp, url_prefix='/api/graph')
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
+    app.register_blueprint(settings_bp, url_prefix='/api/settings')
     
     # 健康检查
     @app.route('/health')
