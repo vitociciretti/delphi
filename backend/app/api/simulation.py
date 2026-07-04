@@ -16,6 +16,7 @@ from ..services.simulation_runner import SimulationRunner, RunnerStatus
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 from ..models.project import ProjectManager
+from ..scenarios import get_registry
 
 logger = get_logger('mirofish.api.simulation')
 
@@ -160,6 +161,65 @@ def get_entities_by_type(graph_id: str, entity_type: str):
         }), 500
 
 
+# ============== 场景预设接口 ==============
+
+@simulation_bp.route('/scenarios', methods=['GET'])
+def list_scenarios():
+    """
+    列出所有可用的场景/领域预设。
+
+    前端可据此让用户选择模拟场景（社媒、金融、组织、叙事或自定义）。
+    自定义预设可通过 SCENARIO_PRESETS_DIR 目录以 JSON 文件形式新增。
+
+    返回：
+        {
+            "success": true,
+            "data": {
+                "default": "social_media",
+                "scenarios": [
+                    {"id": "...", "name": "...", "domain": "...",
+                     "description": "...", "channels": [...], ...},
+                    ...
+                ]
+            }
+        }
+    """
+    try:
+        registry = get_registry()
+        scenarios = []
+        for preset in registry.all():
+            scenarios.append({
+                "id": preset.id,
+                "name": preset.name,
+                "domain": preset.domain,
+                "description": preset.description,
+                "tags": preset.tags,
+                "stances": preset.stances,
+                "default_total_hours": preset.default_total_hours,
+                "default_minutes_per_round": preset.default_minutes_per_round,
+                "engine_platforms": preset.engine_platforms(),
+                "channels": [
+                    {"id": c.id, "label": c.label, "engine_platform": c.engine_platform}
+                    for c in preset.channels
+                ],
+                "builtin": preset.builtin,
+            })
+        return jsonify({
+            "success": True,
+            "data": {
+                "default": registry.default().id,
+                "scenarios": scenarios,
+            }
+        })
+    except Exception as e:
+        logger.error(f"列出场景预设失败: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
 # ============== 模拟管理接口 ==============
 
 @simulation_bp.route('/create', methods=['POST'])
@@ -216,11 +276,13 @@ def create_simulation():
             }), 400
         
         manager = SimulationManager()
+        # enable_twitter/enable_reddit 缺省时传 None，交由场景预设推导启用哪些平台
         state = manager.create_simulation(
             project_id=project_id,
             graph_id=graph_id,
-            enable_twitter=data.get('enable_twitter', True),
-            enable_reddit=data.get('enable_reddit', True),
+            enable_twitter=data.get('enable_twitter'),
+            enable_reddit=data.get('enable_reddit'),
+            scenario_id=data.get('scenario_id'),
         )
         
         return jsonify({

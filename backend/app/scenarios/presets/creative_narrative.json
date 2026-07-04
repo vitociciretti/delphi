@@ -1,0 +1,47 @@
+{
+  "id": "creative_narrative",
+  "name": "Creative / Narrative World",
+  "description": "Explores 'what-if' story outcomes by letting characters act inside a fictional world (e.g. an alternate ending). The world has no real-world diurnal cycle, so activity is roughly uniform and the horizon is measured in story-time.",
+  "domain": "narrative",
+  "activity_rhythm": {
+    "timezone": "UTC",
+    "peak_hours": [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+    "peak_multiplier": 1.0,
+    "work_hours": [6, 7, 22, 23],
+    "work_multiplier": 0.9,
+    "morning_hours": [5],
+    "morning_multiplier": 0.8,
+    "off_peak_hours": [0, 1, 2, 3, 4],
+    "off_peak_multiplier": 0.6
+  },
+  "default_total_hours": 168,
+  "default_minutes_per_round": 120,
+  "channels": [
+    {
+      "id": "narrative",
+      "label": "Story World",
+      "engine": "oasis",
+      "engine_platform": "twitter",
+      "recency_weight": 0.35,
+      "popularity_weight": 0.25,
+      "relevance_weight": 0.4,
+      "viral_threshold": 20,
+      "echo_chamber_strength": 0.4
+    },
+    {
+      "id": "gathering",
+      "label": "Gatherings & Salons",
+      "engine": "oasis",
+      "engine_platform": "reddit",
+      "recency_weight": 0.25,
+      "popularity_weight": 0.25,
+      "relevance_weight": 0.5,
+      "viral_threshold": 25,
+      "echo_chamber_strength": 0.5
+    }
+  ],
+  "stances": ["allied", "opposed", "conflicted", "detached", "observer"],
+  "default_stance": "conflicted",
+  "prompt_framing": "This is a creative narrative simulation. Agents are characters from a story with established personalities, relationships and motivations, acting out how events might unfold (for example an alternate or lost ending). Prioritise in-character voice, interpersonal dynamics and dramatic causality over realism. Interactions represent conversations, encounters and gatherings within the fictional world.",
+  "tags": ["creative", "fiction", "what-if"]
+}

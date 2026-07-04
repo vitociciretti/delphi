@@ -47,7 +47,16 @@ class Config:
     # OASIS模拟配置
     OASIS_DEFAULT_MAX_ROUNDS = int(os.environ.get('OASIS_DEFAULT_MAX_ROUNDS', '10'))
     OASIS_SIMULATION_DATA_DIR = os.path.join(os.path.dirname(__file__), '../uploads/simulations')
-    
+
+    # 场景/领域预设配置 (Scenario / domain presets)
+    # SCENARIO_DEFAULT: 未指定场景时使用的预设 id（默认 social_media，与旧行为完全一致）
+    # SCENARIO_PRESETS_DIR: 额外的用户自定义预设目录，放入 JSON 即可新增领域，无需改动代码
+    SCENARIO_DEFAULT = os.environ.get('SCENARIO_DEFAULT', 'social_media')
+    SCENARIO_PRESETS_DIR = os.environ.get(
+        'SCENARIO_PRESETS_DIR',
+        os.path.join(os.path.dirname(__file__), '../uploads/scenarios')
+    )
+
     # OASIS平台可用动作配置
     OASIS_TWITTER_ACTIONS = [
         'CREATE_POST', 'LIKE_POST', 'REPOST', 'FOLLOW', 'DO_NOTHING', 'QUOTE_POST'

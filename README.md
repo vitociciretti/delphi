@@ -91,6 +91,37 @@ Click the image to watch MiroFish's deep prediction of the lost ending based on 
 4. **Report Generation**: ReportAgent with rich toolset for deep interaction with post-simulation environment
 5. **Deep Interaction**: Chat with any agent in the simulated world & Interact with ReportAgent
 
+## 🧭 Scenario Presets — adapting to different scopes
+
+> This is a **SimulatedWorld** extension over upstream MiroFish. See
+> [`NOTICE.md`](./NOTICE.md) for attribution and the full list of changes.
+
+Out of the box the engine assumed a single scope — social-media public opinion,
+with a fixed China-timezone activity rhythm and Twitter/Reddit feeds baked into
+the config generator. SimulatedWorld externalises those assumptions into
+**config-driven scenario presets**, so the same engine can model very different
+worlds:
+
+| Preset | Scope |
+|--------|-------|
+| `social_media` *(default)* | Original behaviour, unchanged — full backward compatibility. |
+| `global_social_media` | Worldwide, cross-timezone opinion (round-the-clock activity). |
+| `financial_market` | Investor/analyst sentiment around a market signal. |
+| `organization` | How a decision propagates inside an organisation. |
+| `creative_narrative` | Characters acting out an alternate/lost story ending. |
+
+Pick one per run:
+
+```http
+POST /api/simulation/create   { "project_id": "proj_x", "scenario_id": "financial_market" }
+GET  /api/simulation/scenarios
+```
+
+Add your **own domain with zero code** by dropping a JSON file into
+`SCENARIO_PRESETS_DIR`. A preset controls the activity rhythm, time horizon,
+channels, stance vocabulary and the LLM prompt framing. Full guide:
+[`docs/SCENARIOS.md`](./docs/SCENARIOS.md).
+
 ## 🚀 Quick Start
 
 ### Option 1: Source Code Deployment (Recommended)

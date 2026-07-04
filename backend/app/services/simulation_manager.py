@@ -50,7 +50,10 @@ class SimulationState:
     # 平台启用状态
     enable_twitter: bool = True
     enable_reddit: bool = True
-    
+
+    # 场景/领域预设 id（决定活跃度节律、时间跨度、渠道权重与提示词框架）
+    scenario_id: str = "social_media"
+
     # 状态
     status: SimulationStatus = SimulationStatus.CREATED
     
@@ -83,6 +86,7 @@ class SimulationState:
             "graph_id": self.graph_id,
             "enable_twitter": self.enable_twitter,
             "enable_reddit": self.enable_reddit,
+            "scenario_id": self.scenario_id,
             "status": self.status.value,
             "entities_count": self.entities_count,
             "profiles_count": self.profiles_count,
@@ -103,6 +107,7 @@ class SimulationState:
             "simulation_id": self.simulation_id,
             "project_id": self.project_id,
             "graph_id": self.graph_id,
+            "scenario_id": self.scenario_id,
             "status": self.status.value,
             "entities_count": self.entities_count,
             "profiles_count": self.profiles_count,
@@ -174,6 +179,7 @@ class SimulationManager:
             graph_id=data.get("graph_id", ""),
             enable_twitter=data.get("enable_twitter", True),
             enable_reddit=data.get("enable_reddit", True),
+            scenario_id=data.get("scenario_id", "social_media"),
             status=SimulationStatus(data.get("status", "created")),
             entities_count=data.get("entities_count", 0),
             profiles_count=data.get("profiles_count", 0),
@@ -195,36 +201,56 @@ class SimulationManager:
         self,
         project_id: str,
         graph_id: str,
-        enable_twitter: bool = True,
-        enable_reddit: bool = True,
+        enable_twitter: Optional[bool] = None,
+        enable_reddit: Optional[bool] = None,
+        scenario_id: Optional[str] = None,
     ) -> SimulationState:
         """
         创建新的模拟
-        
+
         Args:
             project_id: 项目ID
             graph_id: Zep图谱ID
-            enable_twitter: 是否启用Twitter模拟
-            enable_reddit: 是否启用Reddit模拟
-            
+            enable_twitter: 是否启用Twitter模拟；为 None 时依据场景预设推导
+            enable_reddit: 是否启用Reddit模拟；为 None 时依据场景预设推导
+            scenario_id: 场景/领域预设 id（如 social_media、financial_market）；
+                         为空时使用 Config.SCENARIO_DEFAULT
+
         Returns:
             SimulationState
         """
         import uuid
+        from ..scenarios import get_registry
+
+        # 解析场景预设：未指定平台开关时，从预设映射的引擎平台推导，
+        # 使仅用单一平台的领域（如仅新闻流）也能正确运行。
+        scenario = get_registry().get_or_default(scenario_id or Config.SCENARIO_DEFAULT)
+        if enable_twitter is None:
+            enable_twitter = scenario.uses_platform("twitter")
+        if enable_reddit is None:
+            enable_reddit = scenario.uses_platform("reddit")
+        # 兜底：若两者都为 False（预设配置异常），至少启用 twitter，避免无平台可跑。
+        if not enable_twitter and not enable_reddit:
+            enable_twitter = True
+
         simulation_id = f"sim_{uuid.uuid4().hex[:12]}"
-        
+
         state = SimulationState(
             simulation_id=simulation_id,
             project_id=project_id,
             graph_id=graph_id,
             enable_twitter=enable_twitter,
             enable_reddit=enable_reddit,
+            scenario_id=scenario.id,
             status=SimulationStatus.CREATED,
         )
-        
+
         self._save_simulation_state(state)
-        logger.info(f"创建模拟: {simulation_id}, project={project_id}, graph={graph_id}")
-        
+        logger.info(
+            f"创建模拟: {simulation_id}, project={project_id}, graph={graph_id}, "
+            f"scenario={scenario.id}, twitter={enable_twitter}, reddit={enable_reddit}"
+        )
+
         return state
     
     def prepare_simulation(
@@ -408,7 +434,8 @@ class SimulationManager:
                 document_text=document_text,
                 entities=filtered.entities,
                 enable_twitter=state.enable_twitter,
-                enable_reddit=state.enable_reddit
+                enable_reddit=state.enable_reddit,
+                scenario_id=state.scenario_id
             )
             
             if progress_callback:

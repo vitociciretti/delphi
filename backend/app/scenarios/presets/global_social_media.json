@@ -1,0 +1,47 @@
+{
+  "id": "global_social_media",
+  "name": "Global Social Media",
+  "description": "Public-opinion simulation for a worldwide audience across time zones. Flattens the diurnal rhythm so activity never fully sleeps, suitable for international events rather than a single-region population.",
+  "domain": "social_media",
+  "activity_rhythm": {
+    "timezone": "UTC",
+    "peak_hours": [13, 14, 15, 16, 17, 18, 19, 20],
+    "peak_multiplier": 1.3,
+    "work_hours": [8, 9, 10, 11, 12, 21, 22],
+    "work_multiplier": 0.9,
+    "morning_hours": [6, 7],
+    "morning_multiplier": 0.7,
+    "off_peak_hours": [0, 1, 2, 3, 4, 5, 23],
+    "off_peak_multiplier": 0.5
+  },
+  "default_total_hours": 72,
+  "default_minutes_per_round": 60,
+  "channels": [
+    {
+      "id": "twitter",
+      "label": "Twitter / X",
+      "engine": "oasis",
+      "engine_platform": "twitter",
+      "recency_weight": 0.45,
+      "popularity_weight": 0.3,
+      "relevance_weight": 0.25,
+      "viral_threshold": 12,
+      "echo_chamber_strength": 0.5
+    },
+    {
+      "id": "reddit",
+      "label": "Reddit",
+      "engine": "oasis",
+      "engine_platform": "reddit",
+      "recency_weight": 0.3,
+      "popularity_weight": 0.4,
+      "relevance_weight": 0.3,
+      "viral_threshold": 15,
+      "echo_chamber_strength": 0.55
+    }
+  ],
+  "stances": ["supportive", "opposing", "neutral", "observer"],
+  "default_stance": "neutral",
+  "prompt_framing": "This is a global public-opinion simulation spanning multiple regions and time zones. Agents come from diverse cultural and linguistic backgrounds reacting to an international event. Model round-the-clock activity, cross-region disagreement, and how narratives travel between communities.",
+  "tags": ["opinion", "international", "24-7"]
+}

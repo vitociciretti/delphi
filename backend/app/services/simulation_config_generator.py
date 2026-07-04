@@ -21,6 +21,7 @@ from openai import OpenAI
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, t
+from ..scenarios import ScenarioPreset, get_registry
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
 logger = get_logger('mirofish.simulation_config')
@@ -168,11 +169,15 @@ class SimulationParameters:
     # LLM配置
     llm_model: str = ""
     llm_base_url: str = ""
-    
+
+    # 场景/领域预设
+    scenario_id: str = ""
+    scenario_domain: str = ""
+
     # 生成元数据
     generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     generation_reasoning: str = ""  # LLM的推理说明
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         time_dict = asdict(self.time_config)
@@ -181,6 +186,8 @@ class SimulationParameters:
             "project_id": self.project_id,
             "graph_id": self.graph_id,
             "simulation_requirement": self.simulation_requirement,
+            "scenario_id": self.scenario_id,
+            "scenario_domain": self.scenario_domain,
             "time_config": time_dict,
             "agent_configs": [asdict(a) for a in self.agent_configs],
             "event_config": asdict(self.event_config),
@@ -239,6 +246,10 @@ class SimulationConfigGenerator:
             api_key=self.api_key,
             base_url=self.base_url
         )
+
+        # 当前生成使用的场景预设，在 generate_config 中解析后设置。
+        # 默认使用注册表默认预设（social_media），保证独立调用辅助方法时也可用。
+        self.scenario: ScenarioPreset = get_registry().default()
     
     def generate_config(
         self,
@@ -251,10 +262,11 @@ class SimulationConfigGenerator:
         enable_twitter: bool = True,
         enable_reddit: bool = True,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        scenario_id: Optional[str] = None,
     ) -> SimulationParameters:
         """
         智能生成完整的模拟配置（分步生成）
-        
+
         Args:
             simulation_id: 模拟ID
             project_id: 项目ID
@@ -265,11 +277,18 @@ class SimulationConfigGenerator:
             enable_twitter: 是否启用Twitter
             enable_reddit: 是否启用Reddit
             progress_callback: 进度回调函数(current_step, total_steps, message)
-            
+            scenario_id: 场景/领域预设 id（如 social_media、financial_market）。
+                         为空时使用默认预设，行为与旧版一致。
+
         Returns:
             SimulationParameters: 完整的模拟参数
         """
-        logger.info(f"开始智能生成模拟配置: simulation_id={simulation_id}, 实体数={len(entities)}")
+        # 解析场景预设：决定活跃度节律、时间跨度、平台/渠道权重与提示词框架
+        self.scenario = get_registry().get_or_default(scenario_id)
+        logger.info(
+            f"开始智能生成模拟配置: simulation_id={simulation_id}, 实体数={len(entities)}, "
+            f"场景={self.scenario.id} ({self.scenario.domain})"
+        )
         
         # 计算总步骤数
         num_batches = math.ceil(len(entities) / self.AGENTS_PER_BATCH)
@@ -334,29 +353,11 @@ class SimulationConfigGenerator:
         reasoning_parts.append(t('progress.postAssignResult', count=assigned_count))
         
         # ========== 最后一步: 生成平台配置 ==========
+        # 平台推荐权重来自当前场景预设中映射到该引擎平台的渠道定义，
+        # 使不同领域（金融、组织、叙事等）可拥有各自的传播动力学。
         report_progress(total_steps, t('progress.generatingPlatformConfig'))
-        twitter_config = None
-        reddit_config = None
-        
-        if enable_twitter:
-            twitter_config = PlatformConfig(
-                platform="twitter",
-                recency_weight=0.4,
-                popularity_weight=0.3,
-                relevance_weight=0.3,
-                viral_threshold=10,
-                echo_chamber_strength=0.5
-            )
-        
-        if enable_reddit:
-            reddit_config = PlatformConfig(
-                platform="reddit",
-                recency_weight=0.3,
-                popularity_weight=0.4,
-                relevance_weight=0.3,
-                viral_threshold=15,
-                echo_chamber_strength=0.6
-            )
+        twitter_config = self._build_platform_config("twitter") if enable_twitter else None
+        reddit_config = self._build_platform_config("reddit") if enable_reddit else None
         
         # 构建最终参数
         params = SimulationParameters(
@@ -371,6 +372,8 @@ class SimulationConfigGenerator:
             reddit_config=reddit_config,
             llm_model=self.model_name,
             llm_base_url=self.base_url,
+            scenario_id=self.scenario.id,
+            scenario_domain=self.scenario.domain,
             generation_reasoning=" | ".join(reasoning_parts)
         )
         
@@ -388,12 +391,25 @@ class SimulationConfigGenerator:
         
         # 实体摘要
         entity_summary = self._summarize_entities(entities)
-        
+
         # 构建上下文
-        context_parts = [
+        context_parts = []
+
+        # 场景/领域框架：告诉 LLM 这是何种类型的模拟世界，
+        # 使生成的事件、立场与行为契合具体领域（社媒/金融/组织/叙事等）。
+        if self.scenario and self.scenario.prompt_framing:
+            stance_hint = ""
+            if self.scenario.stances:
+                stance_hint = f"\n可用立场标签(stance): {', '.join(self.scenario.stances)}"
+            context_parts.append(
+                f"## 场景领域 ({self.scenario.name})\n"
+                f"{self.scenario.prompt_framing}{stance_hint}"
+            )
+
+        context_parts.extend([
             f"## 模拟需求\n{simulation_requirement}",
             f"\n## 实体信息 ({len(entities)}个)\n{entity_summary}",
-        ]
+        ])
         
         current_length = sum(len(p) for p in context_parts)
         remaining_length = self.MAX_CONTEXT_LENGTH - current_length - 500  # 留500字符余量
@@ -628,21 +644,63 @@ class SimulationConfigGenerator:
             agents_per_hour_min = max(1, agents_per_hour_max // 2)
             logger.warning(f"agents_per_hour_min >= max，已修正为 {agents_per_hour_min}")
         
+        # 时间跨度与活跃度节律的默认值来自当前场景预设，
+        # LLM 生成的 result 可覆盖这些默认值。
+        rhythm = self.scenario.activity_rhythm
         return TimeSimulationConfig(
-            total_simulation_hours=result.get("total_simulation_hours", 72),
-            minutes_per_round=result.get("minutes_per_round", 60),  # 默认每轮1小时
+            total_simulation_hours=result.get(
+                "total_simulation_hours", self.scenario.default_total_hours
+            ),
+            minutes_per_round=result.get(
+                "minutes_per_round", self.scenario.default_minutes_per_round
+            ),
             agents_per_hour_min=agents_per_hour_min,
             agents_per_hour_max=agents_per_hour_max,
-            peak_hours=result.get("peak_hours", [19, 20, 21, 22]),
-            off_peak_hours=result.get("off_peak_hours", [0, 1, 2, 3, 4, 5]),
-            off_peak_activity_multiplier=0.05,  # 凌晨几乎无人
-            morning_hours=result.get("morning_hours", [6, 7, 8]),
-            morning_activity_multiplier=0.4,
-            work_hours=result.get("work_hours", list(range(9, 19))),
-            work_activity_multiplier=0.7,
-            peak_activity_multiplier=1.5
+            peak_hours=result.get("peak_hours", rhythm.peak_hours),
+            off_peak_hours=result.get("off_peak_hours", rhythm.off_peak_hours),
+            off_peak_activity_multiplier=rhythm.off_peak_multiplier,
+            morning_hours=result.get("morning_hours", rhythm.morning_hours),
+            morning_activity_multiplier=rhythm.morning_multiplier,
+            work_hours=result.get("work_hours", rhythm.work_hours),
+            work_activity_multiplier=rhythm.work_multiplier,
+            peak_activity_multiplier=rhythm.peak_multiplier
         )
-    
+
+    def _build_platform_config(self, engine_platform: str) -> PlatformConfig:
+        """根据当前场景预设构建某个引擎平台的推荐/传播配置。
+
+        若场景中定义了映射到该引擎平台的渠道，则使用其权重；
+        否则回退到该平台的通用默认值（等同旧版硬编码行为）。
+        """
+        channel = self.scenario.channel_for_platform(engine_platform)
+        if channel is not None:
+            return PlatformConfig(
+                platform=engine_platform,
+                recency_weight=channel.recency_weight,
+                popularity_weight=channel.popularity_weight,
+                relevance_weight=channel.relevance_weight,
+                viral_threshold=channel.viral_threshold,
+                echo_chamber_strength=channel.echo_chamber_strength,
+            )
+        # 回退默认值（与历史行为一致）
+        if engine_platform == "reddit":
+            return PlatformConfig(
+                platform="reddit",
+                recency_weight=0.3,
+                popularity_weight=0.4,
+                relevance_weight=0.3,
+                viral_threshold=15,
+                echo_chamber_strength=0.6,
+            )
+        return PlatformConfig(
+            platform="twitter",
+            recency_weight=0.4,
+            popularity_weight=0.3,
+            relevance_weight=0.3,
+            viral_threshold=10,
+            echo_chamber_strength=0.5,
+        )
+
     def _generate_event_config(
         self, 
         context: str, 
