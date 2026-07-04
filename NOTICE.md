@@ -33,6 +33,16 @@ hard-wired to social-media public-opinion simulation.
   domains can be added by dropping a JSON file — no code changes required.
 - Added unit and integration tests for the scenario layer under
   `backend/tests/`.
+- Made the presets' ``engine`` field real: a **simulation engine layer**
+  (`backend/app/engines/`) with the OASIS runner as the default engine and a
+  new in-process, seeded **market engine** (order-flow → price-impact →
+  sentiment feedback).
+- Added an **opinion tracker** deriving per-round stance distributions,
+  consensus/polarization metrics and minority-camp trajectories from action
+  logs; **mid-run interventions** (what-if events injected as real posts);
+  **seeded ensembles** aggregating the distribution of final outcomes; an
+  SSE live stream; offline demo-run generation; and an **Outcome Space**
+  dashboard (`/outcomes`) in the frontend. See `docs/OUTCOMES.md`.
 
 All original copyright and license notices are retained. Trademarks, logos and
 project names referenced from the upstream project remain the property of their

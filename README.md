@@ -122,6 +122,35 @@ Add your **own domain with zero code** by dropping a JSON file into
 channels, stance vocabulary and the LLM prompt framing. Full guide:
 [`docs/SCENARIOS.md`](./docs/SCENARIOS.md).
 
+## 🌐 Outcome Space — distributions, interventions, ensembles
+
+> Also a **SimulatedWorld** extension over upstream MiroFish.
+
+One run is an anecdote. The **Outcome Space** (`/outcomes` in the UI) turns runs
+into *distributions of outcomes* — where consensus forms, what stays
+controversial, which minority views grow, and what changes if you intervene.
+
+- A real **engine layer** behind the presets' `engine` field: the LLM-driven
+  `oasis` engine plus a new in-process, **seeded `market` engine** (sentiment →
+  order flow → price → sentiment feedback), so a domain can differ in
+  *substrate*, not just framing.
+- An **opinion tracker** deriving per-round stance histograms, consensus /
+  polarization metrics and minority-camp trajectories from the action log.
+- **Interventions** — inject a what-if event mid-run; it lands as a real post
+  and agents react.
+- **Ensembles** — run N seeded variants and see the distribution of final
+  outcomes (consensus probability, cross-run divergence).
+- A **live SSE stream** and offline **demo runs** (no API keys needed).
+
+```http
+POST /api/insights/demo                                { "kind": "social" }
+GET  /api/insights/simulation/<id>/opinion/timeline
+POST /api/insights/simulation/<id>/intervene           { "text": "…" }
+POST /api/insights/simulation/<id>/ensemble            { "variants": 12 }
+```
+
+Full guide: [`docs/OUTCOMES.md`](./docs/OUTCOMES.md).
+
 ## 🚀 Quick Start
 
 ### Option 1: Source Code Deployment (Recommended)

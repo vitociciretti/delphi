@@ -156,6 +156,7 @@ def init_logging_for_simulation(simulation_dir: str):
 
 
 from action_logger import SimulationLogManager, PlatformActionLogger
+from interventions import apply_interventions
 
 try:
     from camel.models import ModelFactory
@@ -1243,7 +1244,17 @@ async def run_twitter_simulation(
         # 无论是否有活跃agent，都记录round开始
         if action_logger:
             action_logger.log_round_start(round_num + 1, simulated_hour)
-        
+
+        # 应用后端排队的干预事件（what-if 注入），使其先于本轮 LLM 行为落地
+        if action_logger:
+            try:
+                await apply_interventions(
+                    result.env, simulation_dir, action_logger.platform,
+                    round_num + 1, agent_names, action_logger,
+                )
+            except Exception as e:
+                log_info(f"应用干预事件失败: {e}")
+
         if not active_agents:
             # 没有活跃agent时也记录round结束（actions_count=0）
             if action_logger:
@@ -1442,7 +1453,17 @@ async def run_reddit_simulation(
         # 无论是否有活跃agent，都记录round开始
         if action_logger:
             action_logger.log_round_start(round_num + 1, simulated_hour)
-        
+
+        # 应用后端排队的干预事件（what-if 注入），使其先于本轮 LLM 行为落地
+        if action_logger:
+            try:
+                await apply_interventions(
+                    result.env, simulation_dir, action_logger.platform,
+                    round_num + 1, agent_names, action_logger,
+                )
+            except Exception as e:
+                log_info(f"应用干预事件失败: {e}")
+
         if not active_agents:
             # 没有活跃agent时也记录round结束（actions_count=0）
             if action_logger:

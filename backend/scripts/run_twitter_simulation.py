@@ -635,7 +635,17 @@ class TwitterSimulationRunner:
             simulated_minutes = round_num * minutes_per_round
             simulated_hour = (simulated_minutes // 60) % 24
             simulated_day = simulated_minutes // (60 * 24) + 1
-            
+
+            # 应用后端排队的干预事件（what-if 注入）
+            try:
+                from interventions import apply_interventions
+                await apply_interventions(
+                    self.env, self.simulation_dir, "twitter",
+                    round_num + 1, {}, None,
+                )
+            except Exception as e:
+                print(f"  应用干预事件失败: {e}")
+
             # 获取本轮激活的Agent
             active_agents = self._get_active_agents_for_round(
                 self.env, simulated_hour, round_num

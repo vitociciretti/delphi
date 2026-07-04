@@ -185,7 +185,9 @@ class ScenarioPreset:
             elif ch.id in seen_ids:
                 errors.append(f"preset '{self.id}' has duplicate channel id '{ch.id}'")
             seen_ids.add(ch.id)
-            if ch.engine_platform not in ENGINE_PLATFORMS:
+            # engine_platform constrains only OASIS channels; other engines
+            # (see backend/app/engines) define their own channel semantics.
+            if ch.engine == "oasis" and ch.engine_platform not in ENGINE_PLATFORMS:
                 errors.append(
                     f"preset '{self.id}' channel '{ch.id}' has unsupported "
                     f"engine_platform '{ch.engine_platform}' (expected one of {ENGINE_PLATFORMS})"
