@@ -1,0 +1,240 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+
+\definecolor{codeblue}{HTML}{2060A0}
+\definecolor{codegray}{HTML}{555555}
+\definecolor{codegreen}{HTML}{208030}
+\definecolor{backgray}{HTML}{F5F5F5}
+\hypersetup{colorlinks=true, linkcolor=codeblue, citecolor=codeblue, urlcolor=codeblue}
+
+\lstdefinestyle{plain}{
+  backgroundcolor=\color{backgray},
+  basicstyle=\small\ttfamily,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{codegray!30},
+  showstringspaces=false,
+}
+\lstset{style=plain}
+
+\title{\textbf{Delphi}\\[4pt] \large A Multi-Agent World-Simulation Engine \\[2pt] \normalsize Extended for Financial-Market Scenario Prediction --- Documentation}
+\author{Vito Ciciretti}
+\date{July 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\section{Overview}
+
+Delphi builds a high-fidelity parallel digital world from real-world seed
+material --- a news article, a policy draft, a financial signal, or a story to
+re-imagine. Inside that world, agents with independent personalities, long-term
+memory, and behavioural logic interact and evolve. Variables can be injected
+from a god's-eye view to watch how the resulting dynamics play out --- rehearsing
+outcomes in a sandbox before they happen for real.
+
+Given seed material and a natural-language prediction question, Delphi returns a
+detailed report and an interactive digital world that remains explorable after
+the simulation ends.
+
+\subsection{Intended use}
+
+\begin{itemize}[nosep]
+  \item \textbf{Macro} --- a zero-risk rehearsal lab for decision-makers: test
+    policies, messaging, and market moves before committing to them.
+  \item \textbf{Micro} --- a creative sandbox: deduce alternate story endings or
+    explore ``what if'' scenarios.
+\end{itemize}
+
+\section{Provenance}
+\label{sec:provenance}
+
+Delphi is a \textbf{derivative work}. Its simulation core is
+\href{https://github.com/666ghj/MiroFish}{MiroFish}, an AGPL-3.0 multi-agent
+prediction engine, and its underlying agent-interaction substrate is
+\href{https://github.com/camel-ai/oasis}{OASIS} (Open Agent Social Interaction
+Simulations) from the CAMEL-AI team. Delphi preserves the AGPL-3.0 license end
+to end, as required. The full list of modifications is tracked in
+\texttt{NOTICE.md} in the repository root.
+
+\textbf{What is original to Delphi} is described in Section~\ref{sec:presets}:
+a config-driven scenario/domain preset layer that generalises the engine from a
+single fixed scope (social-media public opinion) to arbitrary domains, including
+financial markets.
+
+\section{Workflow}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Graph building} --- seed extraction, individual/collective
+    memory injection, GraphRAG construction.
+  \item \textbf{Environment setup} --- entity relationship extraction, persona
+    generation, agent configuration injection.
+  \item \textbf{Simulation} --- parallel multi-channel simulation, auto-parsed
+    prediction requirements, dynamic temporal memory updates.
+  \item \textbf{Report generation} --- a report agent with a tool set for deep
+    interaction with the post-simulation world.
+  \item \textbf{Deep interaction} --- chat with any agent in the simulated
+    world, or with the report agent itself.
+\end{enumerate}
+
+\section{Scenario / Domain Presets}
+\label{sec:presets}
+
+The upstream engine hard-wired its assumptions (rhythm, channels, stance
+vocabulary, prompt framing) to a single scope: social-media public-opinion
+simulation, on a fixed China-timezone activity rhythm. Delphi externalises all of
+that into \textbf{scenario presets} --- config-driven JSON descriptions of what
+kind of world a simulation runs in --- so the same engine can model social media,
+financial markets, organisational decisions, or narrative worlds without
+touching engine code.
+
+\subsection{What a preset controls}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Field} & \textbf{Meaning} \\
+\midrule
+\texttt{id} & Unique preset identifier (used in the API / \texttt{SCENARIO\_DEFAULT}). \\
+\texttt{name} / \texttt{description} & Human-facing label and blurb shown in the UI. \\
+\texttt{domain} & High-level grouping: \texttt{social\_media}, \texttt{market}, \texttt{organization}, \texttt{narrative}, \texttt{custom}. \\
+\texttt{activity\_rhythm} & When agents are active over 24h (peak / work / morning / off-peak hours and multipliers) plus a timezone label. Replaces the old fixed China-timezone rhythm. \\
+\texttt{default\_total\_hours} / \texttt{default\_minutes\_per\_round} & Default simulation horizon and time granularity. \\
+\texttt{channels} & Communication channels agents use; each maps onto an \texttt{engine\_platform} (\texttt{twitter} or \texttt{reddit} for OASIS) with recommender weights, a viral threshold, and echo-chamber strength. \\
+\texttt{stances} / \texttt{default\_stance} & Domain-appropriate stance vocabulary (e.g.\ bullish/bearish for markets, advocate/skeptic for organisations). \\
+\texttt{prompt\_framing} & Natural-language framing injected into LLM prompts so generated events, personas, and behaviours fit the domain. \\
+\texttt{tags} & Free-form labels for filtering and display. \\
+\bottomrule
+\end{tabularx}
+\caption{Fields exposed by a scenario preset.}
+\end{table}
+
+\textbf{Engine note.} The underlying simulation still runs on OASIS social
+platforms, so every channel maps onto \texttt{twitter} or \texttt{reddit}. A
+preset changes the framing, rhythm, and dynamics of a run; the \texttt{engine}
+field on each channel leaves room for alternative simulation backends later.
+
+\subsection{Built-in presets}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{id} & \textbf{Domain} & \textbf{Highlights} \\
+\midrule
+\texttt{social\_media} & social\_media & \textbf{Default.} Reproduces the original engine behaviour: China-timezone rhythm, 72h, Twitter + Reddit. \\
+\texttt{global\_social\_media} & social\_media & Flattened 24/7 rhythm for worldwide, cross-timezone events. \\
+\texttt{financial\_market} & market & Market-hours rhythm, 48h in 30-minute rounds, fast news feed + investor forum, bullish/bearish stances. \\
+\texttt{organization} & organization & Business-hours rhythm, 5-day horizon, announcements + team discussion, advocate/skeptic/blocker stances. \\
+\texttt{creative\_narrative} & narrative & No diurnal cycle, week-long story-time horizon, in-character framing for alternate endings. \\
+\bottomrule
+\end{tabularx}
+\caption{Presets shipped with Delphi.}
+\end{table}
+
+\subsection{Selecting and adding scenarios}
+
+Pass \texttt{scenario\_id} when creating a simulation:
+
+\begin{lstlisting}
+POST /api/simulation/create
+{
+  "project_id": "proj_xxxx",
+  "scenario_id": "financial_market"
+}
+\end{lstlisting}
+
+If omitted, \texttt{Config.SCENARIO\_DEFAULT} (env \texttt{SCENARIO\_DEFAULT},
+default \texttt{social\_media}) is used. Which platforms run is inferred from the
+preset's channels unless \texttt{enable\_twitter} / \texttt{enable\_reddit} is
+passed explicitly. List everything available with
+\texttt{GET /api/simulation/scenarios}.
+
+Adding a new domain requires no code: drop a \texttt{<id>.json} file into
+\texttt{SCENARIO\_PRESETS\_DIR} (default \texttt{backend/uploads/scenarios}),
+following the schema of the built-ins in
+\texttt{backend/app/scenarios/presets/}. A user preset with the same \texttt{id}
+as a built-in overrides it, so a shipped scenario can be retuned without editing
+source. Presets are validated on load; malformed files raise a clear
+\texttt{ScenarioLoadError} at startup rather than failing silently at runtime.
+
+Minimal example:
+
+\begin{lstlisting}
+{
+  "id": "product_launch",
+  "name": "Product Launch Buzz",
+  "domain": "social_media",
+  "activity_rhythm": { "timezone": "UTC",
+                        "peak_hours": [12, 13, 18, 19, 20] },
+  "default_total_hours": 96,
+  "channels": [
+    { "id": "social", "engine_platform": "twitter",
+      "viral_threshold": 8 },
+    { "id": "forum",  "engine_platform": "reddit" }
+  ],
+  "stances": ["excited", "critical", "neutral", "observer"],
+  "default_stance": "neutral",
+  "prompt_framing": "Simulate public reaction to a new product launch..."
+}
+\end{lstlisting}
+
+\section{Setup}
+
+\subsection{Prerequisites}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Tool} & \textbf{Version} & \textbf{Description} \\
+\midrule
+Node.js & 18+ & Frontend runtime, includes npm \\
+Python & $\geq$3.11, $\leq$3.12 & Backend runtime \\
+uv & latest & Python package manager \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Source deployment}
+
+\begin{lstlisting}
+cp .env.example .env
+# fill in LLM_API_KEY / LLM_BASE_URL / LLM_MODEL_NAME
+# and ZEP_API_KEY (memory graph; free tier from app.getzep.com)
+
+npm run setup:all      # install root + frontend + backend deps
+npm run dev            # start frontend (:3000) + backend (:5001)
+\end{lstlisting}
+
+\subsection{Docker deployment}
+
+\begin{lstlisting}
+cp .env.example .env
+docker compose up -d --build
+\end{lstlisting}
+
+\section{License \& Attribution}
+
+Delphi is licensed under the GNU Affero General Public License v3.0 --- see
+\texttt{LICENSE}. As described in Section~\ref{sec:provenance}, it is a
+derivative of MiroFish (AGPL-3.0) and depends on OASIS (CAMEL-AI). All original
+copyright and license notices are retained; trademarks, logos, and project names
+referenced from the upstream project remain the property of their respective
+owners. The complete, itemised list of modifications is in \texttt{NOTICE.md}.
+
+\end{document}
