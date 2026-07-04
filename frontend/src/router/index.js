@@ -5,7 +5,7 @@ import SimulationView from '../views/SimulationView.vue'
 import SimulationRunView from '../views/SimulationRunView.vue'
 import ReportView from '../views/ReportView.vue'
 import InteractionView from '../views/InteractionView.vue'
-import Outcomes from '../views/Outcomes.vue'
+import Delphi from '../views/Delphi.vue'
 
 const routes = [
   {
@@ -44,9 +44,10 @@ const routes = [
     props: true
   },
   {
-    path: '/outcomes/:simulationId?',
-    name: 'Outcomes',
-    component: Outcomes,
+    path: '/delphi/:simulationId?',
+    alias: '/outcomes/:simulationId?',
+    name: 'Delphi',
+    component: Delphi,
     props: true
   }
 ]

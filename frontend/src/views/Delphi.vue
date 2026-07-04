@@ -3,8 +3,8 @@
     <!-- ======= header ======= -->
     <header class="oc-header">
       <div class="oc-title-block">
-        <h1 class="oc-title">OUTCOME SPACE</h1>
-        <p class="oc-subtitle">distributions · consensus · minorities · what-ifs</p>
+        <h1 class="oc-title">DELPHI</h1>
+        <p class="oc-subtitle">the oracle — distributions · consensus · minorities · what-ifs</p>
       </div>
       <div class="oc-controls">
         <input
@@ -248,7 +248,7 @@ import {
   getMarketTimeline, getOpinionTimeline, intervene, openStream,
 } from '../api/insights'
 
-/* ---------- palette (validated: see docs/OUTCOMES.md) ---------- */
+/* ---------- palette (validated: see docs/DELPHI.md) ---------- */
 const C = {
   oppStrong: '#c13332', opp: '#ea8a89', mid: '#b3b1a9',
   sup: '#86b6ef', supStrong: '#2a78d6',
@@ -373,7 +373,7 @@ async function loadSimulation(id) {
     simIdInput.value = id
     selectedRound.value = rounds.value.length ? rounds.value[rounds.value.length - 1].round_num : 0
     if (route.params.simulationId !== id) {
-      router.replace({ name: 'Outcomes', params: { simulationId: id } })
+      router.replace({ name: 'Delphi', params: { simulationId: id } })
     }
     await Promise.all([refreshInterventions(), refreshMarket(), refreshEnsemble()])
     attachStream()

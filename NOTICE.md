@@ -41,8 +41,8 @@ hard-wired to social-media public-opinion simulation.
   consensus/polarization metrics and minority-camp trajectories from action
   logs; **mid-run interventions** (what-if events injected as real posts);
   **seeded ensembles** aggregating the distribution of final outcomes; an
-  SSE live stream; offline demo-run generation; and an **Outcome Space**
-  dashboard (`/outcomes`) in the frontend. See `docs/OUTCOMES.md`.
+  SSE live stream; offline demo-run generation; and **Delphi**, an
+  outcome-oracle dashboard (`/delphi`) in the frontend. See `docs/DELPHI.md`.
 
 All original copyright and license notices are retained. Trademarks, logos and
 project names referenced from the upstream project remain the property of their

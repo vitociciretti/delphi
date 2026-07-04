@@ -1,12 +1,13 @@
-# Outcome Space — engines, distributions, interventions, ensembles
+# Delphi — the outcome oracle
 
-This layer answers the question a single simulation run cannot: **what is the
-distribution of outcomes?** Where does consensus form, what stays
-controversial, which minority views grow or radicalise, and what changes if
-you intervene mid-run.
+**Delphi** is SimulatedWorld's prediction layer. It answers the question a
+single simulation run cannot: **what is the distribution of outcomes?** Where
+does consensus form, what stays controversial, which minority views grow or
+radicalise, and what changes if you intervene mid-run.
 
-Open it at **`/outcomes`** in the frontend (also linked from the home nav).
-Two demo buttons generate complete synthetic runs — no LLM or Zep keys needed.
+Open it at **`/delphi`** in the frontend (also linked from the home nav;
+`/outcomes` still resolves as an alias). Two demo buttons generate complete
+synthetic runs — no LLM or Zep keys needed.
 
 ## 1. Engine layer (`backend/app/engines/`)
 
@@ -94,7 +95,7 @@ run with `POST …/market/start {"round_delay_seconds": 0.5}`.
   dynamics *emerge* from replaying ordinary posts/likes/dislikes.
 - **market**: a real market-engine run plus a 10-member ensemble.
 
-## 7. Dashboard (`frontend/src/views/Outcomes.vue`)
+## 7. Dashboard (`frontend/src/views/Delphi.vue`)
 
 KPI tiles with sparklines · opinion-flow streamgraph with intervention
 markers · per-round distribution histogram with scrubber + play animation ·
