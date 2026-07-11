@@ -7,7 +7,7 @@ import service from './index'
  */
 export const CREDS_KEY = 'delphi.llm_creds'
 
-const EMPTY = { provider: '', api_key: '', base_url: '', model: '', zep_api_key: '' }
+const EMPTY = { provider: '', api_key: '', base_url: '', model: '', zep_api_key: '', graph_provider: 'zep' }
 
 /** 读取本地保存的凭据（不存在时返回空结构）。 */
 export function loadLocalCreds() {

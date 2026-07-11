@@ -204,13 +204,13 @@ class SimulationRunner:
     4. 支持暂停/停止/恢复操作
     """
     
-    # 运行状态存储目录
-    RUN_STATE_DIR = os.path.join(
-        os.path.dirname(__file__),
-        '../../uploads/simulations'
-    )
-    
-    # 脚本目录
+    # 运行状态存储目录：按当前工作区隔离（见 _run_state_dir）
+    @classmethod
+    def _run_state_dir(cls) -> str:
+        from ..utils.workspace import workspace_root
+        return os.path.join(workspace_root(), 'simulations')
+
+    # 脚本目录（代码，不随工作区隔离）
     SCRIPTS_DIR = os.path.join(
         os.path.dirname(__file__),
         '../../scripts'
@@ -223,7 +223,9 @@ class SimulationRunner:
     _monitor_threads: Dict[str, threading.Thread] = {}
     _stdout_files: Dict[str, Any] = {}  # 存储 stdout 文件句柄
     _stderr_files: Dict[str, Any] = {}  # 存储 stderr 文件句柄
-    
+    _process_launch_time: Dict[str, float] = {}  # WS-3：simulation_id -> 启动时刻(epoch秒)
+    _reaper_started: bool = False
+
     # 图谱记忆更新配置
     _graph_memory_enabled: Dict[str, bool] = {}  # simulation_id -> enabled
     
@@ -242,7 +244,7 @@ class SimulationRunner:
     @classmethod
     def _load_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
         """从文件加载运行状态"""
-        state_file = os.path.join(cls.RUN_STATE_DIR, simulation_id, "run_state.json")
+        state_file = os.path.join(cls._run_state_dir(), simulation_id, "run_state.json")
         if not os.path.exists(state_file):
             return None
         
@@ -298,7 +300,7 @@ class SimulationRunner:
     @classmethod
     def _save_run_state(cls, state: SimulationRunState):
         """保存运行状态到文件"""
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, state.simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), state.simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         state_file = os.path.join(sim_dir, "run_state.json")
         
@@ -308,7 +310,80 @@ class SimulationRunner:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
         cls._run_states[state.simulation_id] = state
-    
+
+    @classmethod
+    def running_count(cls) -> int:
+        """全局：当前存活的模拟子进程数（跨工作区，保护整台机器）。"""
+        n = 0
+        for p in list(cls._processes.values()):
+            try:
+                if p.poll() is None:
+                    n += 1
+            except Exception:
+                pass
+        return n
+
+    @classmethod
+    def workspace_running_count(cls, exclude: str = None) -> int:
+        """当前工作区中处于 running/starting 的模拟数（读取工作区内的 run-state）。
+
+        exclude: 忽略某个 simulation_id（用于排除正被重启的那个自身）。
+        """
+        root = cls._run_state_dir()
+        if not os.path.exists(root):
+            return 0
+        n = 0
+        for sid in os.listdir(root):
+            if sid == exclude or sid.startswith('.'):
+                continue
+            st = cls.get_run_state(sid)
+            if st and st.runner_status in (RunnerStatus.RUNNING, RunnerStatus.STARTING):
+                n += 1
+        return n
+
+    @classmethod
+    def _reap_overrunning(cls):
+        """回收超过墙钟上限的模拟子进程。只终止进程；由各自的 monitor 线程
+        （持有工作区上下文）负责落盘状态，因此 reaper 无需工作区上下文。"""
+        limit = Config.SIMULATION_MAX_WALLCLOCK_SECONDS
+        if limit <= 0:
+            return
+        now = time.time()
+        for sim_id, p in list(cls._processes.items()):
+            launched = cls._process_launch_time.get(sim_id)
+            if launched is None:
+                continue
+            try:
+                if p.poll() is None and (now - launched) > limit:
+                    logger.warning(
+                        f"模拟 {sim_id} 超过墙钟上限 {limit}s，自动回收")
+                    cls._terminate_process(p, sim_id)
+                elif p.poll() is not None:
+                    # 已结束的进程，清理计时记录
+                    cls._process_launch_time.pop(sim_id, None)
+            except Exception as e:
+                logger.error(f"回收超时模拟失败 {sim_id}: {e}")
+
+    @classmethod
+    def start_reaper(cls):
+        """启动后台守护线程，周期性回收超时模拟。幂等。"""
+        if cls._reaper_started:
+            return
+        cls._reaper_started = True
+        interval = max(5, Config.SIMULATION_REAPER_INTERVAL_SECONDS)
+
+        def _loop():
+            while True:
+                time.sleep(interval)
+                try:
+                    cls._reap_overrunning()
+                except Exception as e:
+                    logger.error(f"reaper 循环异常: {e}")
+
+        threading.Thread(target=_loop, daemon=True, name="sim-reaper").start()
+        logger.info(f"已启动模拟超时回收线程（间隔 {interval}s，上限 "
+                    f"{Config.SIMULATION_MAX_WALLCLOCK_SECONDS}s）")
+
     @classmethod
     def start_simulation(
         cls,
@@ -339,7 +414,7 @@ class SimulationRunner:
             raise ValueError(f"模拟已在运行中: {simulation_id}")
         
         # 加载模拟配置
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         config_path = os.path.join(sim_dir, "simulation_config.json")
         
         if not os.path.exists(config_path):
@@ -461,15 +536,18 @@ class SimulationRunner:
             state.process_pid = process.pid
             state.runner_status = RunnerStatus.RUNNING
             cls._processes[simulation_id] = process
+            cls._process_launch_time[simulation_id] = time.time()  # WS-3 reaper 用
             cls._save_run_state(state)
             
-            # Capture locale before spawning monitor thread
+            # Capture locale + workspace before spawning monitor thread
             current_locale = get_locale()
+            from ..utils.workspace import get_workspace_id
+            current_ws = get_workspace_id()
 
             # 启动监控线程
             monitor_thread = threading.Thread(
                 target=cls._monitor_simulation,
-                args=(simulation_id, current_locale),
+                args=(simulation_id, current_locale, current_ws),
                 daemon=True
             )
             monitor_thread.start()
@@ -486,10 +564,13 @@ class SimulationRunner:
         return state
     
     @classmethod
-    def _monitor_simulation(cls, simulation_id: str, locale: str = 'zh'):
+    def _monitor_simulation(cls, simulation_id: str, locale: str = 'zh', workspace_id: str = None):
         """监控模拟进程，解析动作日志"""
         set_locale(locale)
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        if workspace_id:
+            from ..utils.workspace import set_workspace_id
+            set_workspace_id(workspace_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         
         # 新的日志结构：分平台的动作日志
         twitter_actions_log = os.path.join(sim_dir, "twitter", "actions.jsonl")
@@ -707,7 +788,7 @@ class SimulationRunner:
         Returns:
             True 如果所有启用的平台都已完成
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, state.simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), state.simulation_id)
         twitter_log = os.path.join(sim_dir, "twitter", "actions.jsonl")
         reddit_log = os.path.join(sim_dir, "reddit", "actions.jsonl")
         
@@ -917,7 +998,7 @@ class SimulationRunner:
         Returns:
             完整的动作列表（按时间戳排序，新的在前）
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         actions = []
         
         # 读取 Twitter 动作文件（根据文件路径自动设置 platform 为 twitter）
@@ -1131,7 +1212,7 @@ class SimulationRunner:
         """
         import shutil
         
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         
         if not os.path.exists(sim_dir):
             return {"success": True, "message": "模拟目录不存在，无需清理"}
@@ -1249,7 +1330,7 @@ class SimulationRunner:
                     
                     # 同时更新 state.json，将状态设为 stopped
                     try:
-                        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+                        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
                         state_file = os.path.join(sim_dir, "state.json")
                         logger.info(f"尝试更新 state.json: {state_file}")
                         if os.path.exists(state_file):
@@ -1388,7 +1469,7 @@ class SimulationRunner:
         Returns:
             True 表示环境存活，False 表示环境已关闭
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         if not os.path.exists(sim_dir):
             return False
 
@@ -1406,7 +1487,7 @@ class SimulationRunner:
         Returns:
             状态详情字典，包含 status, twitter_available, reddit_available, timestamp
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         status_file = os.path.join(sim_dir, "env_status.json")
         
         default_status = {
@@ -1460,7 +1541,7 @@ class SimulationRunner:
             ValueError: 模拟不存在或环境未运行
             TimeoutError: 等待响应超时
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         if not os.path.exists(sim_dir):
             raise ValueError(f"模拟不存在: {simulation_id}")
 
@@ -1522,7 +1603,7 @@ class SimulationRunner:
             ValueError: 模拟不存在或环境未运行
             TimeoutError: 等待响应超时
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         if not os.path.exists(sim_dir):
             raise ValueError(f"模拟不存在: {simulation_id}")
 
@@ -1579,7 +1660,7 @@ class SimulationRunner:
         Returns:
             全局采访结果字典
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         if not os.path.exists(sim_dir):
             raise ValueError(f"模拟不存在: {simulation_id}")
 
@@ -1632,7 +1713,7 @@ class SimulationRunner:
         Returns:
             操作结果字典
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         if not os.path.exists(sim_dir):
             raise ValueError(f"模拟不存在: {simulation_id}")
         
@@ -1743,7 +1824,7 @@ class SimulationRunner:
         Returns:
             Interview历史记录列表
         """
-        sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+        sim_dir = os.path.join(cls._run_state_dir(), simulation_id)
         
         results = []
         

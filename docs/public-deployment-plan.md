@@ -83,7 +83,27 @@ Risks / notes:
 
 ---
 
-## WS-2 — Auth, per-user data isolation, Zep cost  *(blocks launch)*
+## WS-2 — Auth, per-user data isolation, Zep cost  ✅ IMPLEMENTED (Jul 4 2026)
+
+Done: `utils/workspace.py` — anonymous signed-cookie (`delphi_ws`, itsdangerous +
+SECRET_KEY) → `workspace_id`; thread-local mirror of the locale pattern;
+`before_request` resolves/mints, `after_request` issues the cookie (httponly, Lax,
+1yr). All disk stores namespaced under `uploads/workspaces/<id>/…`: ProjectManager,
+SimulationManager, SimulationRunner (15 sites), ReportManager + report loggers —
+each root converted from an import-time constant to a per-request scoped path.
+Background threads (graph build, report generate, prepare, sim monitor) capture
+`get_workspace_id()` and `set_workspace_id()` at thread start, next to
+`set_locale`. Cross-origin cookie enabled: axios `withCredentials` + flask-cors
+`supports_credentials` (reflects Origin instead of `*`). **Isolation verified**:
+new-visitor cookie minted once; two contexts → distinct workspaces; a project made
+in A is invisible to B and B can't fetch/stop A's data by ID (control ops gate on
+the workspace-scoped `get_run_state`, so a foreign id resolves to "not found").
+Note: pre-existing single-tenant data under `uploads/{projects,simulations,reports}`
+is now orphaned (dev data, not migrated). Zep is BYO-key (WS-1), so no operator Zep
+cost remains. In-memory `TaskManager`/`SimulationRunner._processes` stay global but
+are gated by scoped disk state; fine under single-worker (WS-4a). Not done: WS-3/4.
+
+### Original design (for reference)
 
 Currently all projects/graphs/simulations/reports live under a single global
 `UPLOAD_FOLDER` with no user scoping.
@@ -108,7 +128,28 @@ Currently all projects/graphs/simulations/reports live under a single global
 
 ---
 
-## WS-3 — Rate limiting & quotas  *(blocks launch)*
+## WS-3 — Rate limiting & quotas  ✅ IMPLEMENTED (Jul 4 2026)
+
+Done, framed around server compute (not tokens). Config knobs (env-overridable):
+`MAX_CONCURRENT_SIMULATIONS`=4, `..._PER_WORKSPACE`=1, `MAX_SIMULATION_ROUNDS`=50,
+`MAX_SIMULATION_AGENTS`=50, `SIMULATION_MAX_WALLCLOCK_SECONDS`=3600, rate-limit
+strings. **Concurrency caps**: `SimulationRunner.running_count()` (global live
+procs) + `workspace_running_count(exclude=)` (scoped run-states) enforced at
+`/simulation/start` → 429 before launch. **Size ceilings**: `max_rounds` clamped to
+50 at `/start` (None→50); agent count truncated to 50 in `prepare_simulation`.
+**Reaper**: daemon thread (`start_reaper`, idempotent, started in factory) records
+per-sim launch time and terminates procs over the wall-clock limit; the sim's own
+monitor thread (which holds workspace context) finalizes disk state, so the reaper
+needs no workspace context. **Request rate limiting**: Flask-Limiter keyed by
+`workspace_id` (IP fallback), `memory://` storage (single-worker), 600/min global
+default (loose — frontend polls), strict per-hour caps on start(20)/prepare(30)/
+ontology+build(40)/report(40); 429s return `{success:false, rate_limited:true}` via
+an errorhandler. Dep added to requirements.txt + pyproject.toml. **Verified**:
+429 after threshold, running_count, reaper kills only the over-limit proc, ceilings
+present. Note: `memory://` limiter + in-memory counts assume single worker (WS-4a);
+point `RATELIMIT_STORAGE_URI` at Redis if scaling out. Not done: WS-4.
+
+### Original design (for reference)
 
 Framed around server compute, not tokens.
 
@@ -122,7 +163,26 @@ Framed around server compute, not tokens.
 
 ---
 
-## WS-4 — Production packaging  *(blocks launch)*
+## WS-4 — Production packaging  ✅ IMPLEMENTED (Jul 4 2026)
+
+Done + verified end-to-end under gunicorn. `backend/wsgi.py` (`app=create_app()`,
+no validate()/BYO-key, ProxyFix when `TRUST_PROXY`); `backend/gunicorn.conf.py`
+(1 worker + 16 threads, `gthread`, preload off so the reaper starts in-worker,
+timeout 300, **max_requests=0** — recycling would drop in-memory sim tracking).
+Config: `COOKIE_SECURE` env flag (workspace cookie honors it), `validate()` relaxed
+for BYO-key (no LLM/Zep required) and now refuses default `SECRET_KEY` in non-debug;
+`run.py` warns-not-exits in dev. Frontend: `.env.production` sets empty
+`VITE_API_BASE_URL` → same-origin `/api`; axios base-URL logic fixed to honor the
+empty value. Optional `SERVE_STATIC` lets the app self-host the built SPA (single
+container). Artifacts: `deploy/nginx.conf` (TLS + static + proxy, 50m body),
+`deploy/delphi.service` (systemd), `Dockerfile.prod` + `docker-compose.prod.yml`,
+`docs/deployment.md` (VPS+systemd and Docker runbooks, env table, Let's Encrypt,
+post-deploy checklist). gunicorn added to requirements.txt + pyproject.toml.
+**Verified**: gunicorn serves `/health`, the built SPA at `/`, `/api/*` with
+`X-RateLimit-Limit` header and a `Secure; HttpOnly; SameSite=Lax` `delphi_ws`
+cookie (COOKIE_SECURE=true). **All four workstreams complete — ready to deploy.**
+
+### Original design (for reference)
 
 - **Frontend:** `vite build` → static bundle served by a CDN/static host or nginx.
   Free/near-free.

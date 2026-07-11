@@ -84,6 +84,23 @@
     ]
   },
   "step1": {
+    "psychPanelTitle": "Agent Psychology",
+    "psychPanelSubtitle": "Irrationality modeling (optional)",
+    "psychEnable": "Enable irrationality modeling",
+    "psychEnableDesc": "Adds explicit models of non-rational behavior: cognitive-bias traits, dynamic emotion state, opinion dynamics equations, System-1/System-2 routing, impulsive actions, and bias probes.",
+    "psychIntensity": "Intensity",
+    "psychFeatures": "Features",
+    "psychFeatureTraits": "Bias traits in prompts",
+    "psychFeatureAffect": "Emotion dynamics (arousal/fatigue)",
+    "psychFeatureOpinion": "Opinion dynamics equations",
+    "psychFeaturePerception": "Biased feed perception",
+    "psychFeatureDualProcess": "System-1/System-2 routing",
+    "psychFeatureChoiceNoise": "Impulsive choice noise",
+    "psychFeatureProbes": "Bias probes (measurement)",
+    "psychOpinionModel": "Opinion model",
+    "psychOpinionDeffuant": "Deffuant (pairwise bounded confidence)",
+    "psychOpinionHK": "Hegselmann-Krause (group averaging)",
+    "psychOpinionDeGroot": "DeGroot (weighted averaging)",
     "ontologyGeneration": "Ontology Generation",
     "ontologyCompleted": "Completed",
     "ontologyGenerating": "Generating",
@@ -572,6 +589,7 @@
     "customSimRounds": "Custom simulation rounds: {rounds} rounds"
   },
   "report": {
+    "psychSectionTitle": "Irrationality & Bias Metrics",
     "taskStarted": "Report generation task started",
     "planningStart": "Starting report outline planning",
     "fetchSimContext": "Fetching simulation context",

@@ -76,9 +76,16 @@ class AgentActivityConfig:
     
     # 立场（对特定话题的态度）
     stance: str = "neutral"  # supportive, opposing, neutral, observer
-    
+
     # 影响力权重（决定其发言被其他Agent看到的概率）
     influence_weight: float = 1.0
+
+    # 心理特质向量（非理性建模，见 scripts/irrationality/traits.py）
+    # {"biases": [...], "credulity": 0-1, "conformity": 0-1,
+    #  "negativity_bias": 0-1, "impulsivity": 0-1, "need_for_cognition": 0-1,
+    #  "opinions": {topic_id: -1..1}}
+    # 为空时运行期由 PsychProfile.from_agent_config 按实体类型确定性回退生成
+    psych: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass  
@@ -174,6 +181,10 @@ class SimulationParameters:
     scenario_id: str = ""
     scenario_domain: str = ""
 
+    # 非理性建模配置（主开关 enabled 默认关闭；结构见
+    # scripts/irrationality/engine.py 的 DEFAULT_CONFIG）
+    irrationality_config: Dict[str, Any] = field(default_factory=dict)
+
     # 生成元数据
     generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     generation_reasoning: str = ""  # LLM的推理说明
@@ -193,6 +204,7 @@ class SimulationParameters:
             "event_config": asdict(self.event_config),
             "twitter_config": asdict(self.twitter_config) if self.twitter_config else None,
             "reddit_config": asdict(self.reddit_config) if self.reddit_config else None,
+            "irrationality_config": self.irrationality_config,
             "llm_model": self.llm_model,
             "llm_base_url": self.llm_base_url,
             "generated_at": self.generated_at,
@@ -250,6 +262,10 @@ class SimulationConfigGenerator:
         # 当前生成使用的场景预设，在 generate_config 中解析后设置。
         # 默认使用注册表默认预设（social_media），保证独立调用辅助方法时也可用。
         self.scenario: ScenarioPreset = get_registry().default()
+
+        # 非理性建模设置，在 generate_config 中解析后设置
+        self.psychology_settings: Dict[str, Any] = {}
+        self._psych_enabled: bool = False
     
     def generate_config(
         self,
@@ -263,6 +279,7 @@ class SimulationConfigGenerator:
         enable_reddit: bool = True,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         scenario_id: Optional[str] = None,
+        psychology_settings: Optional[Dict[str, Any]] = None,
     ) -> SimulationParameters:
         """
         智能生成完整的模拟配置（分步生成）
@@ -279,12 +296,18 @@ class SimulationConfigGenerator:
             progress_callback: 进度回调函数(current_step, total_steps, message)
             scenario_id: 场景/领域预设 id（如 social_media、financial_market）。
                          为空时使用默认预设，行为与旧版一致。
+            psychology_settings: 非理性建模设置（irrationality_config 结构，
+                         主开关 enabled 默认关闭）。启用时会额外让LLM为每个
+                         Agent生成心理特质向量（psych 字段）。
 
         Returns:
             SimulationParameters: 完整的模拟参数
         """
         # 解析场景预设：决定活跃度节律、时间跨度、平台/渠道权重与提示词框架
         self.scenario = get_registry().get_or_default(scenario_id)
+        # 非理性建模：仅在启用时才在Agent配置提示词中要求心理特质字段
+        self.psychology_settings = dict(psychology_settings or {})
+        self._psych_enabled = bool(self.psychology_settings.get("enabled"))
         logger.info(
             f"开始智能生成模拟配置: simulation_id={simulation_id}, 实体数={len(entities)}, "
             f"场景={self.scenario.id} ({self.scenario.domain})"
@@ -374,6 +397,7 @@ class SimulationConfigGenerator:
             llm_base_url=self.base_url,
             scenario_id=self.scenario.id,
             scenario_domain=self.scenario.domain,
+            irrationality_config=self.psychology_settings,
             generation_reasoning=" | ".join(reasoning_parts)
         )
         
@@ -888,6 +912,27 @@ class SimulationConfigGenerator:
                 "summary": e.summary[:summary_len] if e.summary else ""
             })
         
+        # 非理性建模启用时，额外要求LLM生成心理特质向量
+        # bias id 列表须与 scripts/irrationality/traits.py 的 BIAS_LIBRARY 保持同步
+        psych_field_block = ""
+        psych_task_block = ""
+        if self._psych_enabled:
+            psych_task_block = """
+- **心理特质(psych)**：根据实体的身份、经历和立场推断。个人实体特质差异要大（避免趋同）；
+  机构账号 credulity/impulsivity 低。biases 从以下列表选2-4个最符合该实体的：
+  confirmation_bias, negativity_bias, bandwagon_effect, authority_bias,
+  availability_heuristic, illusory_truth, in_group_favoritism,
+  emotional_reasoning, anchoring, false_consensus, reactance, sunk_cost"""
+            psych_field_block = """,
+            "psych": {
+                "biases": ["<2-4个bias id>"],
+                "credulity": <0.0-1.0 轻信程度>,
+                "conformity": <0.0-1.0 从众程度>,
+                "negativity_bias": <0.0-1.0 负面偏好>,
+                "impulsivity": <0.0-1.0 冲动性>,
+                "need_for_cognition": <0.0-1.0 深思倾向>
+            }"""
+
         prompt = f"""基于以下信息，为每个实体生成社交媒体活动配置。
 
 模拟需求: {simulation_requirement}
@@ -903,7 +948,7 @@ class SimulationConfigGenerator:
 - **官方机构**（University/GovernmentAgency）：活跃度低(0.1-0.3)，工作时间(9-17)活动，响应慢(60-240分钟)，影响力高(2.5-3.0)
 - **媒体**（MediaOutlet）：活跃度中(0.4-0.6)，全天活动(8-23)，响应快(5-30分钟)，影响力高(2.0-2.5)
 - **个人**（Student/Person/Alumni）：活跃度高(0.6-0.9)，主要晚间活动(18-23)，响应快(1-15分钟)，影响力低(0.8-1.2)
-- **公众人物/专家**：活跃度中(0.4-0.6)，影响力中高(1.5-2.0)
+- **公众人物/专家**：活跃度中(0.4-0.6)，影响力中高(1.5-2.0){psych_task_block}
 
 返回JSON格式（不要markdown）：
 {{
@@ -918,7 +963,7 @@ class SimulationConfigGenerator:
             "response_delay_max": <最大响应延迟分钟>,
             "sentiment_bias": <-1.0到1.0>,
             "stance": "<supportive/opposing/neutral/observer>",
-            "influence_weight": <影响力权重>
+            "influence_weight": <影响力权重>{psych_field_block}
         }},
         ...
     ]
@@ -957,7 +1002,8 @@ class SimulationConfigGenerator:
                 response_delay_max=cfg.get("response_delay_max", 60),
                 sentiment_bias=cfg.get("sentiment_bias", 0.0),
                 stance=cfg.get("stance", "neutral"),
-                influence_weight=cfg.get("influence_weight", 1.0)
+                influence_weight=cfg.get("influence_weight", 1.0),
+                psych=cfg.get("psych", {}) if isinstance(cfg.get("psych"), dict) else {}
             )
             configs.append(config)
         

@@ -127,14 +127,24 @@
             </div>
           </div>
 
-          <!-- Next Step Button - 在完成后显示 -->
-          <button v-if="isComplete" class="next-step-btn" @click="goToInteraction">
-            <span>{{ $t('step4.goToInteraction') }}</span>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-              <polyline points="12 5 19 12 12 19"></polyline>
-            </svg>
-          </button>
+          <!-- 完成后显示：下载全部 + 进入交互 -->
+          <div v-if="isComplete" class="complete-actions">
+            <a v-if="simulationId" class="download-all-btn" :href="downloadAllHref" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>{{ $t('step4.downloadAll') || 'Download all (.zip)' }}</span>
+            </a>
+            <button class="next-step-btn" @click="goToInteraction">
+              <span>{{ $t('step4.goToInteraction') }}</span>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          </div>
 
           <div class="workflow-divider"></div>
         </div>
@@ -405,6 +415,13 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['add-log', 'update-status'])
+
+// 打包下载链接（浏览器带 workspace cookie 直接访问后端；同源或 SameSite=Lax 均可）
+const downloadAllHref = computed(() => {
+  const base = import.meta.env.VITE_API_BASE_URL
+  const origin = base !== undefined ? base : 'http://localhost:5001'
+  return `${origin}/api/simulation/${props.simulationId}/download-all`
+})
 
 // Navigation
 const goToInteraction = () => {
@@ -3401,6 +3418,36 @@ watch(() => props.reportId, (newId) => {
   font-weight: 600;
   font-size: 14px;
 }
+
+.complete-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 20px 0;
+}
+.complete-actions .next-step-btn {
+  width: 100%;
+  margin: 0;
+}
+.download-all-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #FF4500;
+  background: #fff;
+  border: 1.5px solid #FF4500;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+.download-all-btn:hover { background: #FFF3EE; }
 
 .next-step-btn {
   display: flex;

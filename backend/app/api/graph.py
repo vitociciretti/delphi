@@ -12,9 +12,12 @@ from . import graph_bp
 from ..config import Config
 from ..services.ontology_generator import OntologyGenerator
 from ..services.graph_builder import GraphBuilderService
+from ..services.graph_backends import get_graph_backend, GraphBackendError
 from ..services.text_processor import TextProcessor
 from ..utils.file_parser import FileParser
 from ..utils.llm_creds import creds_from_request
+from ..utils.workspace import get_workspace_id, set_workspace_id
+from ..utils.limiter import limiter
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 from ..models.task import TaskManager, TaskStatus
@@ -121,6 +124,7 @@ def reset_project(project_id: str):
 # ============== 接口1：上传文件并生成本体 ==============
 
 @graph_bp.route('/ontology/generate', methods=['POST'])
+@limiter.limit(Config.RATELIMIT_ONTOLOGY)
 def generate_ontology():
     """
     接口1：上传文件，分析生成本体定义
@@ -340,6 +344,7 @@ def seed_draft():
 # ============== 接口2：构建图谱 ==============
 
 @graph_bp.route('/build', methods=['POST'])
+@limiter.limit(Config.RATELIMIT_ONTOLOGY)
 def build_graph():
     """
     接口2：根据project_id构建图谱
@@ -365,10 +370,10 @@ def build_graph():
     try:
         logger.info("=== 开始构建图谱 ===")
         
-        # 检查配置：BYO-key 模式下 Zep 密钥来自请求 header，而非服务器配置
+        # 检查配置：BYO-key 模式下凭据来自请求 header。仅 Zep 后端需要 Zep 密钥。
         creds = creds_from_request()
         errors = []
-        if not creds.zep_api_key:
+        if creds.graph_provider == 'zep' and not creds.zep_api_key:
             errors.append(t('api.zepApiKeyMissing'))
         if errors:
             logger.error(f"配置错误: {errors}")
@@ -454,12 +459,14 @@ def build_graph():
         project.graph_build_task_id = task_id
         ProjectManager.save_project(project)
         
-        # Capture locale before spawning background thread
+        # Capture locale + workspace before spawning background thread
         current_locale = get_locale()
+        current_ws = get_workspace_id()
 
         # 启动后台任务
         def build_task():
             set_locale(current_locale)
+            set_workspace_id(current_ws)
             build_logger = get_logger('delphi.build')
             try:
                 build_logger.info(f"[{task_id}] 开始构建图谱...")
@@ -469,8 +476,8 @@ def build_graph():
                     message=t('progress.initGraphService')
                 )
                 
-                # 创建图谱构建服务（使用本次请求携带的 Zep 密钥）
-                builder = GraphBuilderService(api_key=creds.zep_api_key)
+                # 创建图谱后端（Zep 或 Mnemosyne，由用户在设置中选择）
+                backend = get_graph_backend(creds)
                 
                 # 分块
                 task_manager.update_task(
@@ -491,7 +498,7 @@ def build_graph():
                     message=t('progress.creatingZepGraph'),
                     progress=10
                 )
-                graph_id = builder.create_graph(name=graph_name)
+                graph_id = backend.create_graph(graph_name)
                 
                 # 更新项目的graph_id
                 project.graph_id = graph_id
@@ -503,54 +510,28 @@ def build_graph():
                     message=t('progress.settingOntology'),
                     progress=15
                 )
-                builder.set_ontology(graph_id, ontology)
+                backend.set_ontology(graph_id, ontology)
                 
-                # 添加文本（progress_callback 签名是 (msg, progress_ratio)）
-                def add_progress_callback(msg, progress_ratio):
-                    progress = 15 + int(progress_ratio * 40)  # 15% - 55%
-                    task_manager.update_task(
-                        task_id,
-                        message=msg,
-                        progress=progress
-                    )
-                
+                # 摄取文本并抽取实体/关系（后端无关：Zep 异步 episodes，Mnemosyne 同步）
                 task_manager.update_task(
                     task_id,
                     message=t('progress.addingChunks', count=total_chunks),
                     progress=15
                 )
-                
-                episode_uuids = builder.add_text_batches(
-                    graph_id, 
-                    chunks,
-                    batch_size=3,
-                    progress_callback=add_progress_callback
-                )
-                
-                # 等待Zep处理完成（查询每个episode的processed状态）
-                task_manager.update_task(
-                    task_id,
-                    message=t('progress.waitingZepProcess'),
-                    progress=55
-                )
-                
-                def wait_progress_callback(msg, progress_ratio):
-                    progress = 55 + int(progress_ratio * 35)  # 55% - 90%
-                    task_manager.update_task(
-                        task_id,
-                        message=msg,
-                        progress=progress
-                    )
-                
-                builder._wait_for_episodes(episode_uuids, wait_progress_callback)
-                
+
+                def ingest_progress_callback(msg, ratio):
+                    progress = 15 + int(ratio * 75)  # 15% - 90%
+                    task_manager.update_task(task_id, message=msg, progress=progress)
+
+                backend.ingest_chunks(graph_id, chunks, progress_callback=ingest_progress_callback)
+
                 # 获取图谱数据
                 task_manager.update_task(
                     task_id,
                     message=t('progress.fetchingGraphData'),
                     progress=95
                 )
-                graph_data = builder.get_graph_data(graph_id)
+                graph_data = backend.get_graph_data(graph_id)
                 
                 # 更新项目状态
                 project.status = ProjectStatus.GRAPH_COMPLETED
@@ -656,14 +637,14 @@ def get_graph_data(graph_id: str):
     """
     try:
         creds = creds_from_request()
-        if not creds.zep_api_key:
+        if creds.graph_provider == 'zep' and not creds.zep_api_key:
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
             }), 500
 
-        builder = GraphBuilderService(api_key=creds.zep_api_key)
-        graph_data = builder.get_graph_data(graph_id)
+        backend = get_graph_backend(creds)
+        graph_data = backend.get_graph_data(graph_id)
         
         return jsonify({
             "success": True,
@@ -685,14 +666,14 @@ def delete_graph(graph_id: str):
     """
     try:
         creds = creds_from_request()
-        if not creds.zep_api_key:
+        if creds.graph_provider == 'zep' and not creds.zep_api_key:
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
             }), 500
 
-        builder = GraphBuilderService(api_key=creds.zep_api_key)
-        builder.delete_graph(graph_id)
+        backend = get_graph_backend(creds)
+        backend.delete_graph(graph_id)
         
         return jsonify({
             "success": True,

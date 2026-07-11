@@ -59,6 +59,14 @@ export const getSimulationConfig = (simulationId) => {
 }
 
 /**
+ * 实时视图聚合数据：Agent 互动图 + 每轮立场分布（WS-5 Part B）
+ * @param {string} simulationId
+ */
+export const getLiveView = (simulationId) => {
+  return service.get(`/api/simulation/${simulationId}/live`)
+}
+
+/**
  * 实时获取生成中的模拟配置
  * @param {string} simulationId
  * @returns {Promise} 返回配置信息，包含元数据和配置内容

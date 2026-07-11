@@ -24,15 +24,17 @@ from app.config import Config
 
 def main():
     """主函数"""
-    # 验证配置
+    # 校验生产安全配置（BYO-key 模式不再要求 LLM/ZEP 密钥）。
+    # dev 模式下仅告警不退出，方便本地直接起服务。
     errors = Config.validate()
     if errors:
-        print("配置错误:")
+        print("配置警告:")
         for err in errors:
             print(f"  - {err}")
-        print("\n请检查 .env 文件中的配置")
-        sys.exit(1)
-    
+        if not Config.DEBUG:
+            print("\n生产环境存在不安全配置，已退出。")
+            sys.exit(1)
+
     # 创建应用
     app = create_app()
     

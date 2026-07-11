@@ -1,0 +1,34 @@
+# Delphi backend (gunicorn) — systemd unit (WS-4).
+# Install:  sudo cp deploy/delphi.service /etc/systemd/system/delphi.service
+#           sudo systemctl daemon-reload && sudo systemctl enable --now delphi
+# Adjust User, paths, and the EnvironmentFile to your host.
+
+[Unit]
+Description=Delphi backend (gunicorn, single worker)
+After=network.target
+
+[Service]
+Type=simple
+User=delphi
+Group=delphi
+WorkingDirectory=/opt/delphi/backend
+
+# Production secrets/config. MUST set a strong SECRET_KEY and COOKIE_SECURE=true.
+# The server holds NO LLM/Zep keys — those are bring-your-own, per request.
+EnvironmentFile=/opt/delphi/backend/.env.production
+
+# uv-managed venv created by `uv sync --frozen`.
+ExecStart=/opt/delphi/backend/.venv/bin/gunicorn -c gunicorn.conf.py wsgi:app
+
+Restart=always
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+# uploads/ lives under WorkingDirectory and must stay writable.
+ReadWritePaths=/opt/delphi/backend/uploads
+
+[Install]
+WantedBy=multi-user.target

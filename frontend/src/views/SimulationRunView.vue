@@ -3,19 +3,19 @@
     <!-- Header -->
     <header class="app-header">
       <div class="header-left">
-        <div class="brand" @click="router.push('/')">DELPHI</div>
+        <div class="brand" @click="router.push('/')">ΔΕΛΦΙ</div>
       </div>
       
       <div class="header-center">
         <div class="view-switcher">
-          <button 
-            v-for="mode in ['graph', 'split', 'workbench']" 
+          <button
+            v-for="mode in ['graph', 'split', 'workbench', 'live']"
             :key="mode"
             class="switch-btn"
             :class="{ active: viewMode === mode }"
             @click="viewMode = mode"
           >
-            {{ { graph: $t('main.layoutGraph'), split: $t('main.layoutSplit'), workbench: $t('main.layoutWorkbench') }[mode] }}
+            {{ { graph: $t('main.layoutGraph'), split: $t('main.layoutSplit'), workbench: $t('main.layoutWorkbench'), live: 'Live' }[mode] }}
           </button>
         </div>
       </div>
@@ -37,8 +37,18 @@
 
     <!-- Main Content Area -->
     <main class="content-area">
+      <!-- Live view: full-width agent interaction graph + stance histogram -->
+      <div v-if="viewMode === 'live'" class="live-wrapper">
+        <LiveView
+          v-if="currentSimulationId"
+          :simulationId="currentSimulationId"
+          :active="viewMode === 'live'"
+        />
+        <div v-else class="live-empty">Start a simulation to see the live view.</div>
+      </div>
+
       <!-- Left Panel: Graph -->
-      <div class="panel-wrapper left" :style="leftPanelStyle">
+      <div v-show="viewMode !== 'live'" class="panel-wrapper left" :style="leftPanelStyle">
         <GraphPanel 
           :graphData="graphData"
           :loading="graphLoading"
@@ -50,7 +60,7 @@
       </div>
 
       <!-- Right Panel: Step3 开始模拟 -->
-      <div class="panel-wrapper right" :style="rightPanelStyle">
+      <div v-show="viewMode !== 'live'" class="panel-wrapper right" :style="rightPanelStyle">
         <Step3Simulation
           :simulationId="currentSimulationId"
           :maxRounds="maxRounds"
@@ -73,6 +83,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GraphPanel from '../components/GraphPanel.vue'
 import Step3Simulation from '../components/Step3Simulation.vue'
+import LiveView from '../components/LiveView.vue'
 import { getProject, getGraphData } from '../api/graph'
 import { getSimulation, getSimulationConfig, stopSimulation, closeSimulationEnv, getEnvStatus } from '../api/simulation'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
@@ -437,6 +448,9 @@ onUnmounted(() => {
   position: relative;
   overflow: hidden;
 }
+
+.live-wrapper { flex: 1; height: 100%; overflow: hidden; }
+.live-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #999; font-size: 14px; }
 
 .panel-wrapper {
   height: 100%;

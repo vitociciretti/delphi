@@ -105,20 +105,23 @@ class Project:
 
 
 class ProjectManager:
-    """项目管理器 - 负责项目的持久化存储和检索"""
-    
-    # 项目存储根目录
-    PROJECTS_DIR = os.path.join(Config.UPLOAD_FOLDER, 'projects')
-    
+    """项目管理器 - 负责项目的持久化存储和检索（按匿名工作区隔离）"""
+
+    @classmethod
+    def _projects_dir(cls) -> str:
+        """当前工作区的项目存储根目录"""
+        from ..utils.workspace import workspace_root
+        return os.path.join(workspace_root(), 'projects')
+
     @classmethod
     def _ensure_projects_dir(cls):
         """确保项目目录存在"""
-        os.makedirs(cls.PROJECTS_DIR, exist_ok=True)
-    
+        os.makedirs(cls._projects_dir(), exist_ok=True)
+
     @classmethod
     def _get_project_dir(cls, project_id: str) -> str:
         """获取项目目录路径"""
-        return os.path.join(cls.PROJECTS_DIR, project_id)
+        return os.path.join(cls._projects_dir(), project_id)
     
     @classmethod
     def _get_project_meta_path(cls, project_id: str) -> str:
@@ -214,7 +217,7 @@ class ProjectManager:
         cls._ensure_projects_dir()
         
         projects = []
-        for project_id in os.listdir(cls.PROJECTS_DIR):
+        for project_id in os.listdir(cls._projects_dir()):
             project = cls.get_project(project_id)
             if project:
                 projects.append(project)

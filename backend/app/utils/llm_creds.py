@@ -31,6 +31,7 @@ H_BASE_URL = 'X-LLM-Base-Url'
 H_MODEL = 'X-LLM-Model'
 H_PROVIDER = 'X-LLM-Provider'
 H_ZEP_KEY = 'X-Zep-Api-Key'
+H_GRAPH_PROVIDER = 'X-Graph-Provider'  # 'zep' (default) | 'mnemosyne'
 
 # Env vars the simulation subprocess (and Config) read config from.
 _LLM_ENV_VARS = ('LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL_NAME', 'ZEP_API_KEY')
@@ -43,6 +44,7 @@ class LlmCreds:
     model: str = ''
     provider: str = ''
     zep_api_key: str = ''
+    graph_provider: str = 'zep'  # memory-graph backend: 'zep' | 'mnemosyne'
 
     def has_llm(self) -> bool:
         # base_url + model are enough for keyless local providers (Ollama/LM Studio).
@@ -90,6 +92,7 @@ def creds_from_request() -> LlmCreds:
         model=(h.get(H_MODEL) or '').strip(),
         provider=(h.get(H_PROVIDER) or '').strip(),
         zep_api_key=(h.get(H_ZEP_KEY) or '').strip(),
+        graph_provider=((h.get(H_GRAPH_PROVIDER) or 'zep').strip().lower() or 'zep'),
     )
 
 

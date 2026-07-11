@@ -130,6 +130,9 @@ except ImportError as e:
     print("请先安装: pip install oasis-ai camel-ai")
     sys.exit(1)
 
+# Irrationality modeling layer (opt-in via irrationality_config.enabled)
+from irrationality import IrrationalityEngine
+
 
 # IPC相关常量
 IPC_COMMANDS_DIR = "ipc_commands"
@@ -417,6 +420,8 @@ class RedditSimulationRunner:
         self.env = None
         self.agent_graph = None
         self.ipc_handler = None
+        self.psych_engine = None
+        self.llm_model_name = ""
         
     def _load_config(self) -> Dict[str, Any]:
         """加载配置文件"""
@@ -460,7 +465,8 @@ class RedditSimulationRunner:
             os.environ["OPENAI_API_BASE_URL"] = llm_base_url
         
         print(f"LLM配置: model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
-        
+
+        self.llm_model_name = llm_model
         return ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI,
             model_type=llm_model,
@@ -498,10 +504,16 @@ class RedditSimulationRunner:
             agent_id = cfg.get("agent_id", 0)
             active_hours = cfg.get("active_hours", list(range(8, 23)))
             activity_level = cfg.get("activity_level", 0.5)
-            
+
             if current_hour not in active_hours:
                 continue
-            
+
+            # Affect coupling: agitated agents act more, bored agents disengage
+            if self.psych_engine is not None:
+                activity_level = min(
+                    1.0, activity_level * self.psych_engine.activity_multiplier(agent_id)
+                )
+
             if random.random() < activity_level:
                 candidates.append(agent_id)
         
@@ -583,7 +595,17 @@ class RedditSimulationRunner:
         
         await self.env.reset()
         print("环境初始化完成\n")
-        
+
+        # 非理性建模引擎（irrationality_config.enabled 时启用）
+        # 必须在 env.reset() 之后 attach：此时 agent 已注册且记忆只含系统提示
+        self.psych_engine = IrrationalityEngine.maybe_create(
+            self.config, self.simulation_dir, self.llm_model_name
+        )
+        if self.psych_engine is not None:
+            self.psych_engine.attach(self.agent_graph)
+            # 基线偏差探测：在任何事件曝光前测量LLM本身的偏差水平
+            await self.psych_engine.run_baseline_probes(self.env)
+
         # 初始化IPC处理器
         self.ipc_handler = IPCHandler(self.simulation_dir, self.env, self.agent_graph)
         self.ipc_handler.update_status("running")
@@ -628,19 +650,31 @@ class RedditSimulationRunner:
             simulated_hour = (simulated_minutes // 60) % 24
             simulated_day = simulated_minutes // (60 * 24) + 1
             
+            if self.psych_engine is not None:
+                # 情绪衰减 + 刷新每个Agent的动态提示上下文（情绪/观点状态）
+                self.psych_engine.before_round(round_num)
+
             active_agents = self._get_active_agents_for_round(
                 self.env, simulated_hour, round_num
             )
-            
+
             if not active_agents:
                 continue
-            
-            actions = {
-                agent: LLMAction()
-                for _, agent in active_agents
-            }
-            
+
+            if self.psych_engine is not None:
+                # System1/System2 路由 + 冲动性选择噪声
+                actions = self.psych_engine.build_actions(active_agents, round_num)
+            else:
+                actions = {
+                    agent: LLMAction()
+                    for _, agent in active_agents
+                }
+
             await self.env.step(actions)
+
+            if self.psych_engine is not None:
+                # 观点动力学方程 + 情绪吸收 + 定期偏差探测 + 遥测
+                await self.psych_engine.after_round(self.env, round_num)
             
             if (round_num + 1) % 10 == 0 or round_num == 0:
                 elapsed = (datetime.now() - start_time).total_seconds()
@@ -654,6 +688,10 @@ class RedditSimulationRunner:
         print(f"\n模拟循环完成!")
         print(f"  - 总耗时: {total_elapsed:.1f}秒")
         print(f"  - 数据库: {db_path}")
+
+        if self.psych_engine is not None:
+            # 汇总偏差探测效应量，写入 bias_probe_results.json
+            self.psych_engine.finalize()
         
         # 是否进入等待命令模式
         if self.wait_for_commands:

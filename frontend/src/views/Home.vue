@@ -2,7 +2,7 @@
   <div class="home-container">
     <!-- 顶部导航栏 -->
     <nav class="navbar">
-      <div class="nav-brand">DELPHI</div>
+      <div class="nav-brand">ΔΕΛΦΙ</div>
       <div class="nav-links">
         <LanguageSwitcher />
         <button class="settings-btn" @click="showSettings = true" title="Model & API key">

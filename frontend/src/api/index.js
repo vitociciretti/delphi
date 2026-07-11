@@ -2,9 +2,15 @@ import axios from 'axios'
 import i18n from '../i18n'
 
 // 创建axios实例
+// In production the SPA is served same-origin behind nginx, so VITE_API_BASE_URL
+// is set to "" (empty) → axios uses relative /api/... paths. In dev it's undefined
+// → fall back to the local backend. (Note: honor an explicit empty string, hence
+// the undefined check rather than `||`.)
+const API_BASE = import.meta.env.VITE_API_BASE_URL
 const service = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001',
+  baseURL: API_BASE !== undefined ? API_BASE : 'http://localhost:5001',
   timeout: 300000, // 5分钟超时（本体生成可能需要较长时间）
+  withCredentials: true, // 发送/接收匿名工作区 cookie（delphi_ws）
   headers: {
     'Content-Type': 'application/json'
   }
@@ -24,6 +30,7 @@ function attachCredHeaders(config) {
     if (c.model) config.headers['X-LLM-Model'] = c.model
     if (c.provider) config.headers['X-LLM-Provider'] = c.provider
     if (c.zep_api_key) config.headers['X-Zep-Api-Key'] = c.zep_api_key
+    if (c.graph_provider) config.headers['X-Graph-Provider'] = c.graph_provider
   } catch (e) {
     // malformed creds — ignore, request will fail closed server-side
   }

@@ -1,0 +1,23 @@
+# Delphi — production compose (WS-4). Single gunicorn container serving API + SPA.
+# Run:  docker compose -f docker-compose.prod.yml up -d --build
+#
+# This exposes plain HTTP on 8000. For a public deploy, put a TLS terminator
+# (nginx/Caddy, or your platform's TLS) in front and set COOKIE_SECURE=true.
+services:
+  delphi:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: delphi
+    env_file:
+      - backend/.env.production   # MUST define a strong SECRET_KEY
+    environment:
+      - SERVE_STATIC=true
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}   # set true once behind TLS
+      - FLASK_DEBUG=false
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    volumes:
+      # Anonymous per-workspace data (projects/simulations/reports) persists here.
+      - ./backend/uploads:/app/backend/uploads

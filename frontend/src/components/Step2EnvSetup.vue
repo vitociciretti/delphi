@@ -1,5 +1,16 @@
 <template>
   <div class="env-setup-panel">
+    <!-- 准备进度条：展示整体进度、当前阶段与实时消息 -->
+    <div v-if="phase < 3" class="prepare-progress">
+      <div class="pp-top">
+        <span class="pp-stage">{{ currentStage || $t('step2.initializing') }}</span>
+        <span class="pp-pct">{{ prepareProgress }}%</span>
+      </div>
+      <div class="pp-track">
+        <div class="pp-fill" :style="{ width: prepareProgress + '%' }"></div>
+      </div>
+      <div v-if="progressMessage" class="pp-msg">{{ progressMessage }}</div>
+    </div>
     <div class="scroll-container">
       <!-- Step 01: 模拟实例 -->
       <div class="step-card" :class="{ 'active': phase === 0, 'completed': phase > 0 }">
@@ -1099,6 +1110,42 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* 准备进度条 */
+.prepare-progress {
+  padding: 14px 24px;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  flex-shrink: 0;
+}
+.pp-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.pp-stage { font-size: 13px; font-weight: 600; color: #333; }
+.pp-pct { font-size: 13px; font-weight: 700; color: #FF4500; font-variant-numeric: tabular-nums; }
+.pp-track {
+  height: 6px;
+  background: #f0f0f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.pp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FF6A33, #FF4500);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.pp-msg {
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Step Card */

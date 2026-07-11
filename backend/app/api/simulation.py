@@ -13,7 +13,10 @@ from ..services.zep_entity_reader import ZepEntityReader
 from ..services.oasis_profile_generator import OasisProfileGenerator
 from ..services.simulation_manager import SimulationManager, SimulationStatus
 from ..services.simulation_runner import SimulationRunner, RunnerStatus
+from ..services.graph_backends import get_graph_backend
 from ..utils.llm_creds import creds_from_request
+from ..utils.workspace import get_workspace_id, set_workspace_id, workspace_root
+from ..utils.limiter import limiter
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 from ..models.project import ProjectManager
@@ -60,7 +63,7 @@ def get_graph_entities(graph_id: str):
     """
     try:
         creds = creds_from_request()
-        if not creds.zep_api_key:
+        if creds.graph_provider == 'zep' and not creds.zep_api_key:
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
@@ -72,7 +75,7 @@ def get_graph_entities(graph_id: str):
 
         logger.info(f"获取图谱实体: graph_id={graph_id}, entity_types={entity_types}, enrich={enrich}")
 
-        reader = ZepEntityReader(api_key=creds.zep_api_key)
+        reader = get_graph_backend(creds)
         result = reader.filter_defined_entities(
             graph_id=graph_id,
             defined_entity_types=entity_types,
@@ -98,13 +101,13 @@ def get_entity_detail(graph_id: str, entity_uuid: str):
     """获取单个实体的详细信息"""
     try:
         creds = creds_from_request()
-        if not creds.zep_api_key:
+        if creds.graph_provider == 'zep' and not creds.zep_api_key:
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
             }), 500
 
-        reader = ZepEntityReader(api_key=creds.zep_api_key)
+        reader = get_graph_backend(creds)
         entity = reader.get_entity_with_context(graph_id, entity_uuid)
         
         if not entity:
@@ -132,7 +135,7 @@ def get_entities_by_type(graph_id: str, entity_type: str):
     """获取指定类型的所有实体"""
     try:
         creds = creds_from_request()
-        if not creds.zep_api_key:
+        if creds.graph_provider == 'zep' and not creds.zep_api_key:
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
@@ -140,7 +143,7 @@ def get_entities_by_type(graph_id: str, entity_type: str):
 
         enrich = request.args.get('enrich', 'true').lower() == 'true'
 
-        reader = ZepEntityReader(api_key=creds.zep_api_key)
+        reader = get_graph_backend(creds)
         entities = reader.get_entities_by_type(
             graph_id=graph_id,
             entity_type=entity_type,
@@ -238,7 +241,13 @@ def create_simulation():
             "project_id": "proj_xxxx",      // 必填
             "graph_id": "delphi_xxxx",    // 可选，如不提供则从project获取
             "enable_twitter": true,          // 可选，默认true
-            "enable_reddit": true            // 可选，默认true
+            "enable_reddit": true,           // 可选，默认true
+            "psychology": {                  // 可选，非理性建模设置（默认关闭）
+                "enabled": true,
+                "intensity": 1.0,
+                "features": {"affect": true, "opinion_dynamics": true, ...},
+                "opinion": {"model": "deffuant", ...}
+            }
         }
     
     返回：
@@ -279,6 +288,14 @@ def create_simulation():
                 "error": t('api.graphNotBuilt')
             }), 400
         
+        # 非理性建模设置校验：必须是对象
+        psychology = data.get('psychology')
+        if psychology is not None and not isinstance(psychology, dict):
+            return jsonify({
+                "success": False,
+                "error": "psychology must be an object"
+            }), 400
+
         manager = SimulationManager()
         # enable_twitter/enable_reddit 缺省时传 None，交由场景预设推导启用哪些平台
         state = manager.create_simulation(
@@ -287,6 +304,7 @@ def create_simulation():
             enable_twitter=data.get('enable_twitter'),
             enable_reddit=data.get('enable_reddit'),
             scenario_id=data.get('scenario_id'),
+            psychology_settings=psychology,
         )
         
         return jsonify({
@@ -322,7 +340,7 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
     import os
     from ..config import Config
     
-    simulation_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, simulation_id)
+    simulation_dir = os.path.join(workspace_root(), 'simulations', simulation_id)
     
     # 检查目录是否存在
     if not os.path.exists(simulation_dir):
@@ -423,6 +441,7 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
 
 
 @simulation_bp.route('/prepare', methods=['POST'])
+@limiter.limit(Config.RATELIMIT_PREPARE)
 def prepare_simulation():
     """
     准备模拟环境（异步任务，LLM智能生成所有参数）
@@ -448,7 +467,8 @@ def prepare_simulation():
             "entity_types": ["Student", "PublicFigure"],  // 可选，指定实体类型
             "use_llm_for_profiles": true,                 // 可选，是否用LLM生成人设
             "parallel_profile_count": 5,                  // 可选，并行生成人设数量，默认5
-            "force_regenerate": false                     // 可选，强制重新生成，默认false
+            "force_regenerate": false,                    // 可选，强制重新生成，默认false
+            "psychology": {"enabled": true, ...}          // 可选，非理性建模设置（覆盖create时的设置）
         }
     
     返回：
@@ -534,6 +554,17 @@ def prepare_simulation():
         use_llm_for_profiles = data.get('use_llm_for_profiles', True)
         parallel_profile_count = data.get('parallel_profile_count', 5)
 
+        # 非理性建模设置：prepare 时可覆盖 create 时的设置（环境搭建步骤的UI面板）
+        psychology = data.get('psychology')
+        if psychology is not None:
+            if not isinstance(psychology, dict):
+                return jsonify({
+                    "success": False,
+                    "error": "psychology must be an object"
+                }), 400
+            state.psychology_settings = psychology
+            manager._save_simulation_state(state)
+
         # BYO-key：捕获本次请求的凭据（在后台线程启动前，线程内无法访问 request）
         creds = creds_from_request()
 
@@ -541,7 +572,7 @@ def prepare_simulation():
         # 这样前端在调用prepare后立即就能获取到预期Agent总数
         try:
             logger.info(f"同步获取实体数量: graph_id={state.graph_id}")
-            reader = ZepEntityReader(api_key=creds.zep_api_key)
+            reader = get_graph_backend(creds)
             # 快速读取实体（不需要边信息，只统计数量）
             filtered_preview = reader.filter_defined_entities(
                 graph_id=state.graph_id,
@@ -570,12 +601,14 @@ def prepare_simulation():
         state.status = SimulationStatus.PREPARING
         manager._save_simulation_state(state)
         
-        # Capture locale before spawning background thread
+        # Capture locale + workspace before spawning background thread
         current_locale = get_locale()
+        current_ws = get_workspace_id()
 
         # 定义后台任务
         def run_prepare():
             set_locale(current_locale)
+            set_workspace_id(current_ws)
             try:
                 task_manager.update_task(
                     task_id,
@@ -1134,7 +1167,7 @@ def get_simulation_profiles_realtime(simulation_id: str):
         platform = request.args.get('platform', 'reddit')
         
         # 获取模拟目录
-        sim_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, simulation_id)
+        sim_dir = os.path.join(workspace_root(), 'simulations', simulation_id)
         
         if not os.path.exists(sim_dir):
             return jsonify({
@@ -1237,7 +1270,7 @@ def get_simulation_config_realtime(simulation_id: str):
     
     try:
         # 获取模拟目录
-        sim_dir = os.path.join(Config.OASIS_SIMULATION_DATA_DIR, simulation_id)
+        sim_dir = os.path.join(workspace_root(), 'simulations', simulation_id)
         
         if not os.path.exists(sim_dir):
             return jsonify({
@@ -1364,6 +1397,74 @@ def get_simulation_config(simulation_id: str):
         }), 500
 
 
+@simulation_bp.route('/<simulation_id>/psychology', methods=['GET'])
+def get_simulation_psychology(simulation_id: str):
+    """
+    获取非理性建模遥测数据
+
+    返回包含：
+        - profiles: 每个Agent的心理特质向量 (psych_profiles.json)
+        - timeline: 每轮的情绪/观点聚合指标 (psych_state.jsonl，仅聚合部分)
+        - bias_probes: 偏差探测结果与效应量 (bias_probe_results.json)
+
+    查询参数：
+        - include_agents: 为 "true" 时 timeline 附带每个Agent的完整状态
+    """
+    import json
+    try:
+        manager = SimulationManager()
+        sim_dir = manager._get_simulation_dir(simulation_id)
+        include_agents = request.args.get('include_agents', 'false').lower() == 'true'
+
+        data = {"profiles": None, "timeline": [], "bias_probes": None}
+        found_any = False
+
+        profiles_path = os.path.join(sim_dir, "psych_profiles.json")
+        if os.path.exists(profiles_path):
+            with open(profiles_path, 'r', encoding='utf-8') as f:
+                data["profiles"] = json.load(f)
+            found_any = True
+
+        telemetry_path = os.path.join(sim_dir, "psych_state.jsonl")
+        if os.path.exists(telemetry_path):
+            with open(telemetry_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not include_agents:
+                        record.pop("agents", None)
+                    data["timeline"].append(record)
+            found_any = True
+
+        probes_path = os.path.join(sim_dir, "bias_probe_results.json")
+        if os.path.exists(probes_path):
+            with open(probes_path, 'r', encoding='utf-8') as f:
+                data["bias_probes"] = json.load(f)
+            found_any = True
+
+        if not found_any:
+            return jsonify({
+                "success": False,
+                "error": "No irrationality telemetry for this simulation "
+                         "(is irrationality_config.enabled set?)"
+            }), 404
+
+        return jsonify({"success": True, "data": data})
+
+    except Exception as e:
+        logger.error(f"获取心理遥测失败: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
 @simulation_bp.route('/<simulation_id>/config/download', methods=['GET'])
 def download_simulation_config(simulation_id: str):
     """下载模拟配置文件"""
@@ -1391,6 +1492,81 @@ def download_simulation_config(simulation_id: str):
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+@simulation_bp.route('/<simulation_id>/live', methods=['GET'])
+def get_live_view(simulation_id: str):
+    """实时视图数据：Agent 互动图 + 每轮立场分布直方图（WS-5 Part B）。
+
+    从磁盘上的 actions.jsonl 聚合，工作区隔离；可在模拟运行中反复轮询。
+    """
+    try:
+        sim_dir = os.path.join(workspace_root(), 'simulations', simulation_id)
+        if not os.path.isdir(sim_dir):
+            return jsonify({"success": False, "error": t('api.simulationNotFound', id=simulation_id)}), 404
+
+        from ..services.live_aggregator import aggregate_live
+        data = aggregate_live(sim_dir)
+
+        # 附带运行状态与轮次进度（供前端显示进度/停止轮询）
+        run_state = SimulationRunner.get_run_state(simulation_id)
+        if run_state:
+            data['status'] = run_state.runner_status.value
+            data['current_round'] = run_state.current_round
+            data['total_rounds'] = run_state.total_rounds
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        logger.error(f"获取实时视图失败: {str(e)}")
+        return jsonify({"success": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@simulation_bp.route('/<simulation_id>/download-all', methods=['GET'])
+def download_all(simulation_id: str):
+    """打包下载整个模拟：配置、Agent 人设、动作日志、运行日志，以及（若已生成）报告。
+
+    返回一个 zip，供离线分析。工作区隔离：只能下载当前工作区自己的模拟。
+    """
+    import io
+    import zipfile
+    try:
+        sim_dir = os.path.join(workspace_root(), 'simulations', simulation_id)
+        if not os.path.isdir(sim_dir):
+            return jsonify({"success": False, "error": t('api.simulationNotFound', id=simulation_id)}), 404
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+            # 1) 模拟目录全部产物（config / profiles / actions / logs / run_state）
+            for root, _dirs, files in os.walk(sim_dir):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    arc = os.path.join(simulation_id, os.path.relpath(full, sim_dir))
+                    z.write(full, arc)
+
+            # 2) 报告（若已生成），best-effort
+            try:
+                from ..services.report_agent import ReportManager
+                report = ReportManager.get_report_by_simulation(simulation_id)
+                if report:
+                    report_dir = ReportManager._get_report_folder(report.report_id)
+                    if os.path.isdir(report_dir):
+                        for root, _dirs, files in os.walk(report_dir):
+                            for fn in files:
+                                full = os.path.join(root, fn)
+                                arc = os.path.join('report', os.path.relpath(full, report_dir))
+                                z.write(full, arc)
+            except Exception as e:
+                logger.warning(f"打包报告时跳过（无报告或读取失败）: {e}")
+
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f"{simulation_id}.zip",
+        )
+    except Exception as e:
+        logger.error(f"打包下载失败: {str(e)}")
+        return jsonify({"success": False, "error": str(e), "traceback": traceback.format_exc()}), 500
 
 
 @simulation_bp.route('/script/<script_name>/download', methods=['GET'])
@@ -1475,7 +1651,7 @@ def generate_profiles():
         platform = data.get('platform', 'reddit')
 
         creds = creds_from_request()
-        reader = ZepEntityReader(api_key=creds.zep_api_key)
+        reader = get_graph_backend(creds)
         filtered = reader.filter_defined_entities(
             graph_id=graph_id,
             defined_entity_types=entity_types,
@@ -1528,6 +1704,7 @@ def generate_profiles():
 # ============== 模拟运行控制接口 ==============
 
 @simulation_bp.route('/start', methods=['POST'])
+@limiter.limit(Config.RATELIMIT_SIMULATION_START)
 def start_simulation():
     """
     开始运行模拟
@@ -1597,6 +1774,13 @@ def start_simulation():
                     "success": False,
                     "error": t('api.maxRoundsInvalid')
                 }), 400
+
+        # WS-3：轮数硬上限（用户无法逾越）。未指定则强制取上限，避免长跑模拟占用名额。
+        ceiling = Config.MAX_SIMULATION_ROUNDS
+        if max_rounds is None or max_rounds > ceiling:
+            if max_rounds is not None and max_rounds > ceiling:
+                logger.info(f"max_rounds {max_rounds} 超过上限，截断为 {ceiling}")
+            max_rounds = ceiling
 
         if platform not in ['twitter', 'reddit', 'parallel']:
             return jsonify({
@@ -1679,6 +1863,21 @@ def start_simulation():
             
             logger.info(f"启用图谱记忆更新: simulation_id={simulation_id}, graph_id={graph_id}")
         
+        # WS-3：并发子进程是稀缺资源——先卡容量再启动
+        if SimulationRunner.running_count() >= Config.MAX_CONCURRENT_SIMULATIONS:
+            return jsonify({
+                "success": False,
+                "rate_limited": True,
+                "error": "Server is at simulation capacity. Please try again in a few minutes.",
+            }), 429
+        if SimulationRunner.workspace_running_count(exclude=simulation_id) >= \
+                Config.MAX_CONCURRENT_SIMULATIONS_PER_WORKSPACE:
+            return jsonify({
+                "success": False,
+                "rate_limited": True,
+                "error": "You already have a simulation running. Wait for it to finish (or stop it) before starting another.",
+            }), 429
+
         # BYO-key：捕获本次请求的凭据，注入到模拟子进程环境（不落全局 env）
         creds = creds_from_request()
 

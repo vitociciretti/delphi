@@ -672,7 +672,13 @@ class OasisProfileGenerator:
     def _get_system_prompt(self, is_individual: bool) -> str:
         """获取系统提示词"""
         base_prompt = "你是社交媒体用户画像生成专家。生成详细、真实的人设用于舆论模拟,最大程度还原已有现实情况。必须返回有效的JSON格式，所有字符串值不能包含未转义的换行符。"
-        return f"{base_prompt}\n\n{get_language_instruction()}"
+        # 语言指令须优先于提示词中的中文示例——所有自然语言字段都用回复语言。
+        lang = get_language_instruction()
+        return (f"{base_prompt}\n\n{lang}\n"
+                f"CRITICAL: Write ALL natural-language field values (bio, persona, "
+                f"country, profession, interested_topics, …) in the language above, "
+                f"regardless of any Chinese examples in the user prompt. Only enum "
+                f"fields (gender) stay in English as instructed.")
     
     def _build_individual_persona_prompt(
         self,
@@ -711,7 +717,7 @@ class OasisProfileGenerator:
 3. age: 年龄数字（必须是整数）
 4. gender: 性别，必须是英文: "male" 或 "female"
 5. mbti: MBTI类型（如INTJ、ENFP等）
-6. country: 国家（使用中文，如"中国"）
+6. country: 国家名称（使用回复语言 / in the response language, e.g. "United States"）
 7. profession: 职业
 8. interested_topics: 感兴趣话题数组
 
@@ -760,7 +766,7 @@ class OasisProfileGenerator:
 3. age: 固定填30（机构账号的虚拟年龄）
 4. gender: 固定填"other"（机构账号使用other表示非个人）
 5. mbti: MBTI类型，用于描述账号风格，如ISTJ代表严谨保守
-6. country: 国家（使用中文，如"中国"）
+6. country: 国家名称（使用回复语言 / in the response language, e.g. "United States"）
 7. profession: 机构职能描述
 8. interested_topics: 关注领域数组
 

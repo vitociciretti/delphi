@@ -13,9 +13,12 @@ from ..config import Config
 from ..services.report_agent import ReportAgent, ReportManager, ReportStatus
 from ..services.simulation_manager import SimulationManager
 from ..services.zep_tools import ZepToolsService
+from ..services.graph_backends import get_graph_backend
 from ..models.project import ProjectManager
 from ..models.task import TaskManager, TaskStatus
 from ..utils.llm_creds import creds_from_request
+from ..utils.workspace import get_workspace_id, set_workspace_id
+from ..utils.limiter import limiter
 from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 
@@ -25,6 +28,7 @@ logger = get_logger('delphi.api.report')
 # ============== 报告生成接口 ==============
 
 @report_bp.route('/generate', methods=['POST'])
+@limiter.limit(Config.RATELIMIT_REPORT)
 def generate_report():
     """
     生成模拟分析报告（异步任务）
@@ -123,14 +127,16 @@ def generate_report():
             }
         )
         
-        # Capture locale before spawning background thread
+        # Capture locale + workspace before spawning background thread
         current_locale = get_locale()
+        current_ws = get_workspace_id()
         # BYO-key：捕获本次请求的凭据（线程内无法访问 request）
         creds = creds_from_request()
 
         # 定义后台任务
         def run_generate():
             set_locale(current_locale)
+            set_workspace_id(current_ws)
             try:
                 task_manager.update_task(
                     task_id,
@@ -139,7 +145,7 @@ def generate_report():
                     message=t('api.initReportAgent')
                 )
                 
-                # 创建Report Agent（使用本次请求携带的 LLM/Zep 凭据）
+                # 创建Report Agent（图谱工具来自所选后端：Zep 或 Mnemosyne）
                 llm_client = creds.to_llm_client()
                 agent = ReportAgent(
                     graph_id=graph_id,
@@ -147,7 +153,7 @@ def generate_report():
                     simulation_requirement=simulation_requirement,
                     seed_source=getattr(project, "seed_source", "uploaded"),
                     llm_client=llm_client,
-                    zep_tools=ZepToolsService(api_key=creds.zep_api_key, llm_client=llm_client),
+                    zep_tools=get_graph_backend(creds, llm_client).report_tools(),
                 )
                 
                 # 进度回调
@@ -549,7 +555,7 @@ def chat_with_report_agent():
         
         simulation_requirement = project.simulation_requirement or ""
 
-        # 创建Agent并进行对话（使用本次请求携带的 LLM/Zep 凭据）
+        # 创建Agent并进行对话（图谱工具来自所选后端：Zep 或 Mnemosyne）
         creds = creds_from_request()
         llm_client = creds.to_llm_client()
         agent = ReportAgent(
@@ -557,7 +563,7 @@ def chat_with_report_agent():
             simulation_id=simulation_id,
             simulation_requirement=simulation_requirement,
             llm_client=llm_client,
-            zep_tools=ZepToolsService(api_key=creds.zep_api_key, llm_client=llm_client),
+            zep_tools=get_graph_backend(creds, llm_client).report_tools(),
         )
         
         result = agent.chat(message=message, chat_history=chat_history)

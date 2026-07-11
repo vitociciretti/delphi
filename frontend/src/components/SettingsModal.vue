@@ -46,23 +46,36 @@
           autocomplete="off"
         />
 
-        <!-- Zep API key (memory graph) -->
-        <label class="field-label">
-          Zep API key
-          <span class="opt-tag">memory graph — needed to build/query graphs</span>
-        </label>
-        <input
-          class="field-input mono"
-          type="password"
-          v-model="zepApiKey"
-          placeholder="z_…"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <div class="provider-note">
-          <span class="cost-tag free-tier">BRING KEY</span>
-          <span>Delphi stores no keys — get a free Zep key and it stays in this browser only.</span>
-          <a href="https://www.getzep.com/" target="_blank" class="note-link">Get Zep key ↗</a>
+        <!-- Memory graph backend picker -->
+        <label class="field-label">Memory graph</label>
+        <select class="field-input" v-model="graphProvider">
+          <option value="zep">Zep Cloud — managed, bring a free key</option>
+          <option value="mnemosyne">Mnemosyne (local) — self-hosted, no key</option>
+        </select>
+
+        <!-- Zep API key: only when Zep is the graph backend -->
+        <template v-if="graphProvider === 'zep'">
+          <label class="field-label">
+            Zep API key
+            <span class="opt-tag">needed to build/query graphs</span>
+          </label>
+          <input
+            class="field-input mono"
+            type="password"
+            v-model="zepApiKey"
+            placeholder="z_…"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <div class="provider-note">
+            <span class="cost-tag free-tier">BRING KEY</span>
+            <span>Delphi stores no keys — get a free Zep key and it stays in this browser only.</span>
+            <a href="https://www.getzep.com/" target="_blank" class="note-link">Get Zep key ↗</a>
+          </div>
+        </template>
+        <div v-else class="provider-note">
+          <span class="cost-tag free-local">LOCAL</span>
+          <span>Mnemosyne runs on the server, no key, no free-tier limit. Uses your LLM key above for entity extraction.</span>
         </div>
 
         <div v-if="testResult" class="test-result" :class="{ ok: testResult.ok, err: !testResult.ok }">
@@ -106,6 +119,8 @@ const PROVIDERS = [
     note: 'Free tier via Google AI Studio. Rate-limited on the free plan.', link: 'https://aistudio.google.com/apikey', linkLabel: 'Free key ↗' },
   { id: 'openrouter', label: 'OpenRouter (free models)', cost: 'free-tier', base_url: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct:free', modelHint: 'any model id ending in :free', needsKey: true,
     note: 'Free with any model id ending in “:free”. Rate-limited.', link: 'https://openrouter.ai/keys', linkLabel: 'Free key ↗' },
+  { id: 'cerebras', label: 'Cerebras (free tier)', cost: 'free-tier', base_url: 'https://api.cerebras.ai/v1', model: 'gpt-oss-120b', modelHint: 'gpt-oss-120b / zai-glm-4.7 / gemma-4-31b', needsKey: true,
+    note: 'Extremely fast (~2000 tok/s). Free tier: 1M tokens/day, no card. If a model 404s, check your key’s list (see below).', link: 'https://cloud.cerebras.ai/', linkLabel: 'Free key ↗' },
   // Paid · bring key
   { id: 'openai', label: 'OpenAI', cost: 'paid', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini', modelHint: 'gpt-4o-mini / gpt-4o', needsKey: true,
     note: 'gpt-4o-mini is cheap and solid; gpt-4o for best quality.', link: 'https://platform.openai.com/api-keys', linkLabel: 'Get key ↗' },
@@ -132,6 +147,7 @@ const baseUrl = ref('')
 const model = ref('')
 const apiKey = ref('')
 const zepApiKey = ref('')
+const graphProvider = ref('zep')
 
 const testing = ref(false)
 const saving = ref(false)
@@ -183,6 +199,7 @@ const doSave = () => {
       base_url: baseUrl.value,
       model: model.value,
       zep_api_key: zepApiKey.value,
+      graph_provider: graphProvider.value,
     })
     saved.value = true
     emit('saved', data)
@@ -206,6 +223,7 @@ onMounted(() => {
   model.value = d.model || (current.value?.model ?? '')
   apiKey.value = d.api_key || ''
   zepApiKey.value = d.zep_api_key || ''
+  graphProvider.value = d.graph_provider || 'zep'
 })
 </script>
 

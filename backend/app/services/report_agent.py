@@ -22,6 +22,17 @@ from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, t, get_locale
+
+
+def _reports_root() -> str:
+    """当前工作区的报告存储根目录（按匿名工作区隔离）。"""
+    from ..utils.workspace import workspace_root
+    return os.path.join(workspace_root(), 'reports')
+
+
+def _safe_ratio(numerator: float, denominator: float) -> Optional[float]:
+    """分母为0时返回None的安全比率"""
+    return round(numerator / denominator, 3) if denominator else None
 from .zep_tools import (
     ZepToolsService, 
     SearchResult, 
@@ -50,7 +61,7 @@ class ReportLogger:
         """
         self.report_id = report_id
         self.log_file_path = os.path.join(
-            Config.UPLOAD_FOLDER, 'reports', report_id, 'agent_log.jsonl'
+            _reports_root(), report_id, 'agent_log.jsonl'
         )
         self.start_time = datetime.now()
         self._ensure_log_file()
@@ -321,7 +332,7 @@ class ReportConsoleLogger:
         """
         self.report_id = report_id
         self.log_file_path = os.path.join(
-            Config.UPLOAD_FOLDER, 'reports', report_id, 'console_log.txt'
+            _reports_root(), report_id, 'console_log.txt'
         )
         self._ensure_log_file()
         self._file_handler = None
@@ -1558,8 +1569,161 @@ class ReportAgent:
         
         return final_answer
     
+    def _load_psychology_telemetry(self) -> Optional[Dict[str, Any]]:
+        """读取非理性建模遥测（若模拟未启用则返回 None）
+
+        数据来源（模拟目录下，由 scripts/irrationality 引擎写入）：
+        - psych_state.jsonl: 每轮情绪/观点聚合指标
+        - bias_probe_results.json: 偏差探测结果与效应量
+        - psych_profiles.json: 每Agent心理特质向量
+        """
+        from ..utils.workspace import workspace_root
+        sim_dir = os.path.join(workspace_root(), 'simulations', self.simulation_id)
+
+        telemetry: Dict[str, Any] = {}
+
+        state_path = os.path.join(sim_dir, 'psych_state.jsonl')
+        if os.path.exists(state_path):
+            rounds = []
+            try:
+                with open(state_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            record = json.loads(line)
+                            record.pop('agents', None)  # 报告只需要聚合指标
+                            rounds.append(record)
+                        except json.JSONDecodeError:
+                            continue
+            except OSError:
+                rounds = []
+            if rounds:
+                telemetry['rounds'] = rounds
+
+        probes_path = os.path.join(sim_dir, 'bias_probe_results.json')
+        if os.path.exists(probes_path):
+            try:
+                with open(probes_path, 'r', encoding='utf-8') as f:
+                    telemetry['bias_probes'] = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        profiles_path = os.path.join(sim_dir, 'psych_profiles.json')
+        if os.path.exists(profiles_path):
+            try:
+                with open(profiles_path, 'r', encoding='utf-8') as f:
+                    profiles = json.load(f)
+                # 报告只需要特质分布摘要，不需要逐Agent明细
+                telemetry['population'] = self._summarize_psych_population(profiles)
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        return telemetry or None
+
+    @staticmethod
+    def _summarize_psych_population(profiles: Dict[str, Any]) -> Dict[str, Any]:
+        """把逐Agent特质向量压缩为分布摘要"""
+        traits = ['credulity', 'conformity', 'negativity_bias',
+                  'impulsivity', 'need_for_cognition']
+        values = {t_name: [] for t_name in traits}
+        bias_counts: Dict[str, int] = {}
+        for p in profiles.values():
+            for t_name in traits:
+                v = p.get(t_name)
+                if isinstance(v, (int, float)):
+                    values[t_name].append(float(v))
+            for b in p.get('biases', []):
+                bias_counts[b] = bias_counts.get(b, 0) + 1
+        summary: Dict[str, Any] = {'agent_count': len(profiles)}
+        for t_name, vals in values.items():
+            if vals:
+                summary[t_name] = {
+                    'mean': round(sum(vals) / len(vals), 3),
+                    'min': round(min(vals), 3),
+                    'max': round(max(vals), 3),
+                }
+        summary['bias_prevalence'] = dict(
+            sorted(bias_counts.items(), key=lambda kv: kv[1], reverse=True))
+        return summary
+
+    def _generate_psychology_section(self, telemetry: Dict[str, Any]) -> str:
+        """生成"非理性与偏差指标"章节（确定性数据 + LLM叙述）
+
+        与其他章节不同：数据是确定性计算的（观点极化轨迹、情绪曲线、
+        偏差探测效应量），LLM只负责解读叙述，不做ReAct工具调用。
+        """
+        rounds = telemetry.get('rounds') or []
+        digest: Dict[str, Any] = {}
+
+        if rounds:
+            first, last = rounds[0], rounds[-1]
+            digest['rounds_observed'] = len(rounds)
+            digest['arousal_trajectory'] = {
+                'start': first.get('mean_arousal'),
+                'peak': max((r.get('mean_arousal') or 0) for r in rounds),
+                'end': last.get('mean_arousal'),
+            }
+            digest['fatigue_end'] = last.get('mean_fatigue')
+            # 每话题的极化轨迹（标准差与双峰系数的首末对比）
+            opinion_start = first.get('opinion') or {}
+            opinion_end = last.get('opinion') or {}
+            digest['opinion_shift'] = {
+                topic: {
+                    'std_start': (opinion_start.get(topic) or {}).get('std'),
+                    'std_end': metrics.get('std'),
+                    'bimodality_end': metrics.get('bimodality'),
+                    'mean_end': metrics.get('mean'),
+                }
+                for topic, metrics in opinion_end.items()
+            }
+            digest['system1_share'] = _safe_ratio(
+                sum((r.get('events') or {}).get('s1', 0) for r in rounds),
+                sum((r.get('events') or {}).get('s1', 0)
+                    + (r.get('events') or {}).get('s2', 0) for r in rounds))
+            digest['impulsive_actions'] = sum(
+                (r.get('events') or {}).get('noise', 0) for r in rounds)
+
+        if telemetry.get('bias_probes'):
+            digest['bias_probe_summary'] = telemetry['bias_probes'].get('summary', {})
+            digest['bias_probe_waves'] = len(telemetry['bias_probes'].get('waves', []))
+
+        if telemetry.get('population'):
+            digest['population'] = telemetry['population']
+
+        prompt = f"""你是社会模拟分析专家。以下是一次舆论模拟中非理性建模层的量化遥测数据。
+请撰写报告章节正文（Markdown，不要重复章节标题），内容包括：
+
+1. 群体情绪动态：唤醒度(arousal)轨迹说明了什么（峰值时刻、疲劳/免疫效应）
+2. 观点极化：各话题的标准差与双峰系数(bimodality>0.555提示极化)如何演变
+3. 决策模式：System-1（直觉）决策占比与冲动行为次数说明了什么
+4. 偏差探测：锚定效应(anchoring_effect)、从众偏移(conformity_shift)、
+   框架效应(framing_effect)的效应量解读（对比基线波与后期波）
+5. 局限性说明：这些指标基于简化模型，应作为参考信号而非精确测量
+
+数据：
+```json
+{json.dumps(digest, ensure_ascii=False, indent=2)}
+```
+
+要求：客观、量化、简洁（600-900字），引用具体数字。{get_language_instruction()}"""
+
+        try:
+            content = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+            )
+            return content
+        except Exception as e:
+            logger.warning(f"心理指标章节LLM叙述生成失败: {e}, 返回数据表格")
+            # 兜底：至少输出确定性数据
+            return ("```json\n"
+                    + json.dumps(digest, ensure_ascii=False, indent=2)
+                    + "\n```")
+
     def generate_report(
-        self, 
+        self,
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
         report_id: Optional[str] = None
     ) -> Report:
@@ -1642,7 +1806,16 @@ class ReportAgent:
                     progress_callback(stage, prog // 5, msg) if progress_callback else None
             )
             report.outline = outline
-            
+
+            # 非理性建模遥测存在时，追加确定性的"非理性与偏差指标"章节。
+            # 大纲由LLM动态规划，故在此确定性追加，保证该章节必然出现。
+            psych_telemetry = self._load_psychology_telemetry()
+            psych_section_title = None
+            if psych_telemetry:
+                psych_section_title = t('report.psychSectionTitle')
+                outline.sections.append(ReportSection(title=psych_section_title))
+                logger.info("检测到非理性建模遥测，已追加偏差指标章节")
+
             # 记录规划完成日志
             self.report_logger.log_planning_complete(outline.to_dict())
             
@@ -1682,18 +1855,22 @@ class ReportAgent:
                     )
                 
                 # 生成主章节内容
-                section_content = self._generate_section_react(
-                    section=section,
-                    outline=outline,
-                    previous_sections=generated_sections,
-                    progress_callback=lambda stage, prog, msg:
-                        progress_callback(
-                            stage, 
-                            base_progress + int(prog * 0.7 / total_sections),
-                            msg
-                        ) if progress_callback else None,
-                    section_index=section_num
-                )
+                # 偏差指标章节走确定性数据路径，不经过ReAct工具循环
+                if psych_section_title and section.title == psych_section_title:
+                    section_content = self._generate_psychology_section(psych_telemetry)
+                else:
+                    section_content = self._generate_section_react(
+                        section=section,
+                        outline=outline,
+                        previous_sections=generated_sections,
+                        progress_callback=lambda stage, prog, msg:
+                            progress_callback(
+                                stage,
+                                base_progress + int(prog * 0.7 / total_sections),
+                                msg
+                            ) if progress_callback else None,
+                        section_index=section_num
+                    )
                 
                 section.content = section_content
                 generated_sections.append(f"## {section.title}\n\n{section_content}")
@@ -1932,18 +2109,20 @@ class ReportManager:
         full_report.md     - 完整报告
     """
     
-    # 报告存储目录
-    REPORTS_DIR = os.path.join(Config.UPLOAD_FOLDER, 'reports')
-    
+    # 报告存储目录：按当前工作区隔离
+    @classmethod
+    def _reports_dir(cls) -> str:
+        return _reports_root()
+
     @classmethod
     def _ensure_reports_dir(cls):
         """确保报告根目录存在"""
-        os.makedirs(cls.REPORTS_DIR, exist_ok=True)
-    
+        os.makedirs(cls._reports_dir(), exist_ok=True)
+
     @classmethod
     def _get_report_folder(cls, report_id: str) -> str:
         """获取报告文件夹路径"""
-        return os.path.join(cls.REPORTS_DIR, report_id)
+        return os.path.join(cls._reports_dir(), report_id)
     
     @classmethod
     def _ensure_report_folder(cls, report_id: str) -> str:
@@ -2483,7 +2662,7 @@ class ReportManager:
         
         if not os.path.exists(path):
             # 兼容旧格式：检查直接存储在reports目录下的文件
-            old_path = os.path.join(cls.REPORTS_DIR, f"{report_id}.json")
+            old_path = os.path.join(cls._reports_dir(), f"{report_id}.json")
             if os.path.exists(old_path):
                 path = old_path
             else:
@@ -2534,8 +2713,8 @@ class ReportManager:
         """根据模拟ID获取报告"""
         cls._ensure_reports_dir()
         
-        for item in os.listdir(cls.REPORTS_DIR):
-            item_path = os.path.join(cls.REPORTS_DIR, item)
+        for item in os.listdir(cls._reports_dir()):
+            item_path = os.path.join(cls._reports_dir(), item)
             # 新格式：文件夹
             if os.path.isdir(item_path):
                 report = cls.get_report(item)
@@ -2556,8 +2735,8 @@ class ReportManager:
         cls._ensure_reports_dir()
         
         reports = []
-        for item in os.listdir(cls.REPORTS_DIR):
-            item_path = os.path.join(cls.REPORTS_DIR, item)
+        for item in os.listdir(cls._reports_dir()):
+            item_path = os.path.join(cls._reports_dir(), item)
             # 新格式：文件夹
             if os.path.isdir(item_path):
                 report = cls.get_report(item)
@@ -2592,8 +2771,8 @@ class ReportManager:
         
         # 兼容旧格式：删除单独的文件
         deleted = False
-        old_json_path = os.path.join(cls.REPORTS_DIR, f"{report_id}.json")
-        old_md_path = os.path.join(cls.REPORTS_DIR, f"{report_id}.md")
+        old_json_path = os.path.join(cls._reports_dir(), f"{report_id}.json")
+        old_md_path = os.path.join(cls._reports_dir(), f"{report_id}.md")
         
         if os.path.exists(old_json_path):
             os.remove(old_json_path)

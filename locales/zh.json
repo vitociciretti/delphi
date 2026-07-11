@@ -84,6 +84,23 @@
     ]
   },
   "step1": {
+    "psychPanelTitle": "Agent 心理建模",
+    "psychPanelSubtitle": "非理性建模（可选）",
+    "psychEnable": "启用非理性建模",
+    "psychEnableDesc": "为Agent添加显式的非理性行为模型：认知偏差特质、动态情绪状态、观点动力学方程、System-1/System-2 路由、冲动行为与偏差探测。",
+    "psychIntensity": "强度",
+    "psychFeatures": "功能",
+    "psychFeatureTraits": "提示词偏差特质",
+    "psychFeatureAffect": "情绪动力学（唤醒/疲劳）",
+    "psychFeatureOpinion": "观点动力学方程",
+    "psychFeaturePerception": "有偏信息流感知",
+    "psychFeatureDualProcess": "System-1/System-2 路由",
+    "psychFeatureChoiceNoise": "冲动性选择噪声",
+    "psychFeatureProbes": "偏差探测（测量）",
+    "psychOpinionModel": "观点模型",
+    "psychOpinionDeffuant": "Deffuant（成对有界信任）",
+    "psychOpinionHK": "Hegselmann-Krause（群体平均）",
+    "psychOpinionDeGroot": "DeGroot（加权平均）",
     "ontologyGeneration": "本体生成",
     "ontologyCompleted": "已完成",
     "ontologyGenerating": "生成中",
@@ -572,6 +589,7 @@
     "customSimRounds": "自定义模拟轮数: {rounds} 轮"
   },
   "report": {
+    "psychSectionTitle": "非理性与偏差指标",
     "taskStarted": "报告生成任务开始",
     "planningStart": "开始规划报告大纲",
     "fetchSimContext": "获取模拟上下文信息",

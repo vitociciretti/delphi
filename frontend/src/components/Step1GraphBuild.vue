@@ -158,8 +158,53 @@
         <div class="card-content">
           <p class="api-note">POST /api/simulation/create</p>
           <p class="description">{{ $t('step1.buildCompleteDesc') }}</p>
-          <button 
-            class="action-btn" 
+
+          <!-- Agent Psychology (irrationality modeling) settings -->
+          <div class="psych-panel">
+            <div class="psych-header" @click="psychExpanded = !psychExpanded">
+              <div class="psych-titles">
+                <span class="psych-title">{{ $t('step1.psychPanelTitle') }}</span>
+                <span class="psych-subtitle">{{ $t('step1.psychPanelSubtitle') }}</span>
+              </div>
+              <span class="psych-toggle-icon">{{ psychExpanded ? '−' : '+' }}</span>
+            </div>
+            <div v-show="psychExpanded" class="psych-body">
+              <label class="psych-enable">
+                <input type="checkbox" v-model="psych.enabled" />
+                <span>{{ $t('step1.psychEnable') }}</span>
+              </label>
+              <p class="psych-desc">{{ $t('step1.psychEnableDesc') }}</p>
+              <template v-if="psych.enabled">
+                <div class="psych-row">
+                  <span class="psych-label">{{ $t('step1.psychIntensity') }}</span>
+                  <input
+                    type="range" min="0.2" max="2" step="0.1"
+                    v-model.number="psych.intensity"
+                    class="psych-slider"
+                  />
+                  <span class="psych-value">{{ psych.intensity.toFixed(1) }}</span>
+                </div>
+                <div class="psych-row">
+                  <span class="psych-label">{{ $t('step1.psychOpinionModel') }}</span>
+                  <select v-model="psych.opinionModel" class="psych-select">
+                    <option value="deffuant">{{ $t('step1.psychOpinionDeffuant') }}</option>
+                    <option value="hk">{{ $t('step1.psychOpinionHK') }}</option>
+                    <option value="degroot">{{ $t('step1.psychOpinionDeGroot') }}</option>
+                  </select>
+                </div>
+                <div class="psych-features">
+                  <span class="psych-label">{{ $t('step1.psychFeatures') }}</span>
+                  <label v-for="f in psychFeatureList" :key="f.key" class="psych-feature">
+                    <input type="checkbox" v-model="psych.features[f.key]" />
+                    <span>{{ $t(f.labelKey) }}</span>
+                  </label>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <button
+            class="action-btn"
             :disabled="currentPhase < 2 || creatingSimulation"
             @click="handleEnterEnvSetup"
           >
@@ -210,21 +255,59 @@ const selectedOntologyItem = ref(null)
 const logContent = ref(null)
 const creatingSimulation = ref(false)
 
+// Agent 心理建模（非理性建模）设置 — 默认关闭（opt-in）
+const psychExpanded = ref(false)
+const psych = ref({
+  enabled: false,
+  intensity: 1.0,
+  opinionModel: 'deffuant',
+  features: {
+    trait_prompts: true,
+    affect: true,
+    opinion_dynamics: true,
+    biased_perception: true,
+    dual_process: true,
+    choice_noise: true,
+    bias_probes: true
+  }
+})
+const psychFeatureList = [
+  { key: 'trait_prompts', labelKey: 'step1.psychFeatureTraits' },
+  { key: 'affect', labelKey: 'step1.psychFeatureAffect' },
+  { key: 'opinion_dynamics', labelKey: 'step1.psychFeatureOpinion' },
+  { key: 'biased_perception', labelKey: 'step1.psychFeaturePerception' },
+  { key: 'dual_process', labelKey: 'step1.psychFeatureDualProcess' },
+  { key: 'choice_noise', labelKey: 'step1.psychFeatureChoiceNoise' },
+  { key: 'bias_probes', labelKey: 'step1.psychFeatureProbes' }
+]
+
+// 构建 irrationality_config 结构（未启用时返回 undefined，请求中省略该字段）
+const buildPsychologyPayload = () => {
+  if (!psych.value.enabled) return undefined
+  return {
+    enabled: true,
+    intensity: psych.value.intensity,
+    features: { ...psych.value.features },
+    opinion: { model: psych.value.opinionModel }
+  }
+}
+
 // 进入环境搭建 - 创建 simulation 并跳转
 const handleEnterEnvSetup = async () => {
   if (!props.projectData?.project_id || !props.projectData?.graph_id) {
     console.error('缺少项目或图谱信息')
     return
   }
-  
+
   creatingSimulation.value = true
-  
+
   try {
     const res = await createSimulation({
       project_id: props.projectData.project_id,
       graph_id: props.projectData.graph_id,
       enable_twitter: true,
-      enable_reddit: true
+      enable_reddit: true,
+      psychology: buildPsychologyPayload()
     })
     
     if (res.success && res.data?.simulation_id) {
@@ -601,6 +684,114 @@ watch(() => props.systemLogs.length, () => {
 }
 
 /* Step 03 Button */
+.psych-panel {
+  border: 1px solid #E5E5E5;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  background: #FFF;
+}
+
+.psych-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.psych-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.psych-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.psych-subtitle {
+  font-size: 10px;
+  color: #999;
+}
+
+.psych-toggle-icon {
+  font-size: 16px;
+  color: #666;
+}
+
+.psych-body {
+  padding: 0 12px 12px;
+  border-top: 1px solid #F0F0F0;
+}
+
+.psych-enable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.psych-desc {
+  font-size: 10px;
+  color: #999;
+  margin: 6px 0 10px;
+  line-height: 1.5;
+}
+
+.psych-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.psych-label {
+  font-size: 11px;
+  color: #666;
+  min-width: 80px;
+}
+
+.psych-slider {
+  flex: 1;
+}
+
+.psych-value {
+  font-size: 11px;
+  font-family: monospace;
+  min-width: 26px;
+  text-align: right;
+}
+
+.psych-select {
+  flex: 1;
+  font-size: 11px;
+  padding: 4px 6px;
+  border: 1px solid #E5E5E5;
+  border-radius: 4px;
+  background: #FFF;
+}
+
+.psych-features {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.psych-feature {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #333;
+  cursor: pointer;
+}
+
 .action-btn {
   width: 100%;
   background: #000;

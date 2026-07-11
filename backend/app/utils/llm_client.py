@@ -62,7 +62,14 @@ class LLMClient:
             kwargs["response_format"] = response_format
         
         response = self.client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content
+        message = response.choices[0].message
+        content = message.content
+        # 部分推理模型（如 gpt-oss、DeepSeek-R1）会把正文放在 reasoning 字段，
+        # content 可能为 None——回退到这些字段，避免下方 re.sub 收到 None。
+        if content is None:
+            content = (getattr(message, 'reasoning_content', None)
+                       or getattr(message, 'reasoning', None)
+                       or '')
         # 部分模型（如MiniMax M2.5）会在content中包含<think>思考内容，需要移除
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         return content

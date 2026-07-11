@@ -54,6 +54,9 @@ class SimulationState:
     # 场景/领域预设 id（决定活跃度节律、时间跨度、渠道权重与提示词框架）
     scenario_id: str = "social_media"
 
+    # 非理性建模设置（irrationality_config 结构，主开关 enabled 默认关闭）
+    psychology_settings: Dict[str, Any] = field(default_factory=dict)
+
     # 状态
     status: SimulationStatus = SimulationStatus.CREATED
     
@@ -87,6 +90,7 @@ class SimulationState:
             "enable_twitter": self.enable_twitter,
             "enable_reddit": self.enable_reddit,
             "scenario_id": self.scenario_id,
+            "psychology_settings": self.psychology_settings,
             "status": self.status.value,
             "entities_count": self.entities_count,
             "profiles_count": self.profiles_count,
@@ -128,22 +132,20 @@ class SimulationManager:
     4. 准备预设脚本所需的所有文件
     """
     
-    # 模拟数据存储目录
-    SIMULATION_DATA_DIR = os.path.join(
-        os.path.dirname(__file__), 
-        '../../uploads/simulations'
-    )
-    
     def __init__(self):
-        # 确保目录存在
-        os.makedirs(self.SIMULATION_DATA_DIR, exist_ok=True)
-        
         # 内存中的模拟状态缓存
         self._simulations: Dict[str, SimulationState] = {}
-    
+
+    def _data_dir(self) -> str:
+        """当前工作区的模拟数据根目录（按需创建）"""
+        from ..utils.workspace import workspace_root
+        d = os.path.join(workspace_root(), 'simulations')
+        os.makedirs(d, exist_ok=True)
+        return d
+
     def _get_simulation_dir(self, simulation_id: str) -> str:
         """获取模拟数据目录"""
-        sim_dir = os.path.join(self.SIMULATION_DATA_DIR, simulation_id)
+        sim_dir = os.path.join(self._data_dir(), simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         return sim_dir
     
@@ -180,6 +182,7 @@ class SimulationManager:
             enable_twitter=data.get("enable_twitter", True),
             enable_reddit=data.get("enable_reddit", True),
             scenario_id=data.get("scenario_id", "social_media"),
+            psychology_settings=data.get("psychology_settings", {}),
             status=SimulationStatus(data.get("status", "created")),
             entities_count=data.get("entities_count", 0),
             profiles_count=data.get("profiles_count", 0),
@@ -204,6 +207,7 @@ class SimulationManager:
         enable_twitter: Optional[bool] = None,
         enable_reddit: Optional[bool] = None,
         scenario_id: Optional[str] = None,
+        psychology_settings: Optional[Dict[str, Any]] = None,
     ) -> SimulationState:
         """
         创建新的模拟
@@ -215,6 +219,8 @@ class SimulationManager:
             enable_reddit: 是否启用Reddit模拟；为 None 时依据场景预设推导
             scenario_id: 场景/领域预设 id（如 social_media、financial_market）；
                          为空时使用 Config.SCENARIO_DEFAULT
+            psychology_settings: 非理性建模设置（irrationality_config 结构，
+                         主开关 enabled 默认关闭）
 
         Returns:
             SimulationState
@@ -242,6 +248,7 @@ class SimulationManager:
             enable_twitter=enable_twitter,
             enable_reddit=enable_reddit,
             scenario_id=scenario.id,
+            psychology_settings=dict(psychology_settings or {}),
             status=SimulationStatus.CREATED,
         )
 
@@ -306,7 +313,9 @@ class SimulationManager:
             if progress_callback:
                 progress_callback("reading", 0, t('progress.connectingZepGraph'))
             
-            reader = ZepEntityReader(api_key=_zep_key)
+            # 通过图谱后端工厂读取实体（Zep 或 Mnemosyne，由用户选择）
+            from .graph_backends import get_graph_backend
+            reader = get_graph_backend(creds) if creds else ZepEntityReader(api_key=_zep_key)
 
             if progress_callback:
                 progress_callback("reading", 30, t('progress.readingNodeData'))
@@ -333,7 +342,18 @@ class SimulationManager:
                 state.error = "没有找到符合条件的实体，请检查图谱是否正确构建"
                 self._save_simulation_state(state)
                 return state
-            
+
+            # WS-3：Agent 数量硬上限（保护算力）。超出则截断并记录。
+            from ..config import Config as _Cfg
+            _agent_cap = _Cfg.MAX_SIMULATION_AGENTS
+            if len(filtered.entities) > _agent_cap:
+                logger.warning(
+                    f"实体数 {len(filtered.entities)} 超过 Agent 上限 {_agent_cap}，截断"
+                )
+                filtered.entities = filtered.entities[:_agent_cap]
+                filtered.filtered_count = len(filtered.entities)
+                state.entities_count = filtered.filtered_count
+
             # ========== 阶段2: 生成Agent Profile ==========
             total_entities = len(filtered.entities)
             
@@ -452,7 +472,8 @@ class SimulationManager:
                 entities=filtered.entities,
                 enable_twitter=state.enable_twitter,
                 enable_reddit=state.enable_reddit,
-                scenario_id=state.scenario_id
+                scenario_id=state.scenario_id,
+                psychology_settings=state.psychology_settings
             )
             
             if progress_callback:
@@ -507,11 +528,12 @@ class SimulationManager:
     def list_simulations(self, project_id: Optional[str] = None) -> List[SimulationState]:
         """列出所有模拟"""
         simulations = []
-        
-        if os.path.exists(self.SIMULATION_DATA_DIR):
-            for sim_id in os.listdir(self.SIMULATION_DATA_DIR):
+
+        data_dir = self._data_dir()
+        if os.path.exists(data_dir):
+            for sim_id in os.listdir(data_dir):
                 # 跳过隐藏文件（如 .DS_Store）和非目录文件
-                sim_path = os.path.join(self.SIMULATION_DATA_DIR, sim_id)
+                sim_path = os.path.join(data_dir, sim_id)
                 if sim_id.startswith('.') or not os.path.isdir(sim_path):
                     continue
                 
