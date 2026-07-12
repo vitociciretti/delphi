@@ -108,8 +108,8 @@ const emit = defineEmits(['close', 'saved'])
 // Provider presets, grouped by cost.
 const PROVIDERS = [
   // Free · Local
-  { id: 'ollama', label: 'Ollama (local)', cost: 'free-local', base_url: 'http://localhost:11434/v1', model: 'llama3.1', modelHint: 'llama3.1 / qwen2.5 / mistral', needsKey: false,
-    note: 'Runs on your Mac, $0 and private. Install Ollama then `ollama pull llama3.1`.', link: 'https://ollama.com', linkLabel: 'Install Ollama ↗' },
+  { id: 'ollama', label: 'Ollama (local)', cost: 'free-local', base_url: 'http://localhost:11434/v1', model: 'qwen3:8b', modelHint: 'qwen3:8b / llama3.1 / mistral', needsKey: false,
+    note: 'Runs locally, $0 and private. Install Ollama then `ollama pull qwen3:8b`.', link: 'https://ollama.com', linkLabel: 'Install Ollama ↗' },
   { id: 'lmstudio', label: 'LM Studio (local)', cost: 'free-local', base_url: 'http://localhost:1234/v1', model: 'local-model', modelHint: 'the model id shown in LM Studio', needsKey: false,
     note: 'Local server, $0 and private. Start the LM Studio server, then load a model.', link: 'https://lmstudio.ai', linkLabel: 'Get LM Studio ↗' },
   // Free · API tier

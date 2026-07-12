@@ -58,7 +58,11 @@ class MnemosyneBackend(GraphBackend):
                 self._llm_env['LLM_API_KEY'] = creds.api_key
             if getattr(creds, 'model', ''):
                 self._llm_env['LLM_MODEL'] = creds.model
-        # No LLM key → fall back to the deterministic rules extractor (no key needed).
+        # Keyless local providers (Ollama/LM Studio) are still LLM-capable:
+        # base_url + model suffice; the OpenAI client just needs a non-empty token.
+        if not self._llm_env.get('LLM_API_KEY') and self._llm_env.get('LLM_BASE_URL') and self._llm_env.get('LLM_MODEL'):
+            self._llm_env['LLM_API_KEY'] = 'not-needed'
+        # No usable LLM config → fall back to the deterministic rules extractor.
         self._extractor = 'auto' if self._llm_env.get('LLM_API_KEY') else 'rules'
         self._ontology_cache: Dict[str, Dict[str, Any]] = {}
 
