@@ -29,7 +29,11 @@ class LLMClient:
         
         self.client = OpenAI(
             api_key=self.api_key,
-            base_url=self.base_url
+            base_url=self.base_url,
+            # 本地模型（Ollama）冷加载+思考可能很慢，但绝不能无限挂起：
+            # 单请求上限 5 分钟，不重试（上层各自有回退逻辑）。
+            timeout=300.0,
+            max_retries=0,
         )
     
     def chat(
