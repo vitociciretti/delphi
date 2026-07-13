@@ -225,6 +225,7 @@ class SimulationRunner:
     _stderr_files: Dict[str, Any] = {}  # 存储 stderr 文件句柄
     _process_launch_time: Dict[str, float] = {}  # WS-3：simulation_id -> 启动时刻(epoch秒)
     _reaper_started: bool = False
+    _reaped_for_timeout: set = set()  # 被墙钟上限回收的模拟——让失败原因可辨认
 
     # 图谱记忆更新配置
     _graph_memory_enabled: Dict[str, bool] = {}  # simulation_id -> enabled
@@ -357,6 +358,7 @@ class SimulationRunner:
                 if p.poll() is None and (now - launched) > limit:
                     logger.warning(
                         f"模拟 {sim_id} 超过墙钟上限 {limit}s，自动回收")
+                    cls._reaped_for_timeout.add(sim_id)
                     cls._terminate_process(p, sim_id)
                 elif p.poll() is not None:
                     # 已结束的进程，清理计时记录
@@ -627,7 +629,15 @@ class SimulationRunner:
                             error_info = f.read()[-2000:]  # 取最后2000字符
                 except Exception:
                     pass
-                state.error = f"进程退出码: {exit_code}, 错误: {error_info}"
+                if simulation_id in cls._reaped_for_timeout:
+                    cls._reaped_for_timeout.discard(simulation_id)
+                    state.error = (
+                        f"已被墙钟上限回收 / terminated by the wall-clock reaper after "
+                        f"{Config.SIMULATION_MAX_WALLCLOCK_SECONDS}s "
+                        f"(SIMULATION_MAX_WALLCLOCK_SECONDS — raise it for slow local models). "
+                        f"进程退出码: {exit_code}")
+                else:
+                    state.error = f"进程退出码: {exit_code}, 错误: {error_info}"
                 logger.error(f"模拟失败: {simulation_id}, error={state.error}")
             
             state.twitter_running = False
