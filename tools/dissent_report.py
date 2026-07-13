@@ -2,21 +2,27 @@
 """Dissent / controversy / irrationality report for a delphi simulation.
 
 Generates, into <sim>/analysis/:
-  DISSENT.md               dissent & irrationality report (read this first)
-  fabrication_audit.png    per-agent numeric claims: grounded in seed vs fabricated
-  fabrication_by_round.png fabricated-claim share per round (does drift grow?)
+  DISSENT.md                       model-risk audit (fabricated numeric claims)
+  fabrication_audit.png            per-agent numeric claims: grounded vs fabricated
+  fabrication_by_round.png         fabricated-claim share per round (drift)
+and, when an OpenAI-compatible LLM is reachable (default: local Ollama):
+  DISSENT_IDEAS.md (+ .docx if pandoc is installed)   controversial / non-consensus
+  dissent_position_map.png                            IDEAS: who breaks from the
+  dissent_contested_questions.png                     crowd, on what, saying what
 
-Method (deterministic, no LLM): every numeric token in agent-generated text is
-checked against the seed document. A number the seed never contained is either
-dissent (an agent asserting its own version of reality — sometimes the
-irrationality layer working as designed) or confabulation. The report separates
-candidates by whether they collide with a seed number in similar context.
+Fabrication audit is deterministic (numeric tokens checked against the seed doc).
+The ideas layer is LLM-assisted: one call discovers the contested questions in the
+agents' own words, then one call per agent classifies its position. Use a fast
+non-thinking model for this (llama3.1) — set DISSENT_LLM_MODEL to override.
 
-Usage: python tools/dissent_report.py <sim_id> [--workspace <id>] [--out <dir>]
-Deps: matplotlib.
+Usage: python tools/dissent_report.py <sim_id> [--workspace <id>] [--out <dir>] [--no-ideas]
+Env:   DISSENT_LLM_BASE_URL (default http://localhost:11434/v1)
+       DISSENT_LLM_MODEL    (default llama3.1)
+Deps: matplotlib. pandoc optional (for the .docx).
 """
 import argparse
 import json
+import os
 import re
 import sys
 import io
@@ -57,11 +63,172 @@ def core_digits(tok):
     return m.group(0) if m else ""
 
 
+# ───────────────────────── LLM-assisted ideas layer ─────────────────────────
+
+def _llm_json(system, prompt, max_tokens=1500):
+    """One chat call against an OpenAI-compatible endpoint; returns parsed JSON or None."""
+    import urllib.request
+    base = os.environ.get("DISSENT_LLM_BASE_URL", "http://localhost:11434/v1").rstrip("/")
+    model = os.environ.get("DISSENT_LLM_MODEL", "llama3.1")
+    body = json.dumps({
+        "model": model, "temperature": 0, "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        base + "/chat/completions", data=body,
+        headers={"Content-Type": "application/json", "Authorization": "Bearer ollama"})
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))["choices"][0]["message"]["content"] or ""
+        raw = re.sub(r"<think>[\s\S]*?</think>", "", raw)
+        return json.loads(raw[raw.index("{"):raw.rindex("}") + 1])
+    except Exception as e:
+        print(f"[ideas] LLM call failed: {e}")
+        return None
+
+
+def ideas_layer(items, out):
+    """Discover contested questions and per-agent positions; render charts + report."""
+    by_agent = defaultdict(list)
+    for rnd, agent, atype, text, pf in items:
+        by_agent[agent].append(f"(r{rnd}) {text}")
+    corpus = "\n".join(f"[{a}] {t}" for a, ts in by_agent.items() for t in ts)[:12000]
+
+    disc = _llm_json(
+        "You analyze multi-agent debates. JSON only.",
+        "Below are all posts from a multi-agent simulation. Identify 3 to 6 genuinely CONTESTED "
+        "questions — where different agents take opposing positions (not topics everyone agrees on). "
+        "Respond ONLY JSON: {\"questions\": [{\"label\": \"short question\", "
+        "\"pole_a\": \"one position, short\", \"pole_b\": \"the opposing position, short\"}]}\n\n" + corpus)
+    if not disc or not disc.get("questions"):
+        print("[ideas] no contested questions returned — skipping ideas layer")
+        return
+    questions = disc["questions"][:6]
+
+    positions = {}  # agent -> list of 'a'|'b'|'none'
+    qlist = "\n".join(f"{i+1}. {q['label']} | A: {q['pole_a']} | B: {q['pole_b']}"
+                      for i, q in enumerate(questions))
+    for agent, texts in by_agent.items():
+        res = _llm_json(
+            "You classify a debate participant's positions. JSON only.",
+            f"Questions (each with position A and position B):\n{qlist}\n\n"
+            f"Everything agent \"{agent}\" wrote:\n" + "\n".join(texts)[:6000] +
+            "\n\nFor EACH question, does this agent support A, B, or take no clear position? "
+            "Respond ONLY JSON: {\"positions\": [\"a\"|\"b\"|\"none\", ...]} "
+            f"(exactly {len(questions)} entries, in order).")
+        pos = (res or {}).get("positions") or []
+        positions[agent] = [str(p).lower() if str(p).lower() in ("a", "b") else "none"
+                            for p in (pos + ["none"] * len(questions))[:len(questions)]]
+
+    # majority pole per question; dissent = minority pole
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    plt.rcParams.update({
+        "font.family": "sans-serif", "font.sans-serif": ["Segoe UI", "DejaVu Sans"],
+        "text.color": INK, "axes.labelcolor": INK2, "xtick.color": MUTED, "ytick.color": MUTED,
+        "axes.edgecolor": BASE, "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
+    })
+    CONSENSUS, DIS, SILENT = SERIES[0], SERIES[5], "#f0efec"
+    agents = sorted(by_agent, key=lambda a: -len(by_agent[a]))
+    rows = []
+    for qi, q in enumerate(questions):
+        a_n = sum(1 for ag in agents if positions[ag][qi] == "a")
+        b_n = sum(1 for ag in agents if positions[ag][qi] == "b")
+        crowd = "a" if a_n >= b_n else "b"
+        rows.append({"q": q, "crowd": crowd,
+                     "crowd_n": max(a_n, b_n), "dis_n": min(a_n, b_n),
+                     "dissenters": [ag for ag in agents
+                                    if positions[ag][qi] not in ("none", crowd)]})
+
+    ny, nx = len(questions), len(agents)
+    fig, ax = plt.subplots(figsize=(max(9, 0.85 * nx + 2.5), 0.8 * ny + 1.8))
+    for qi, row in enumerate(rows):
+        for xi, ag in enumerate(agents):
+            p = positions[ag][qi]
+            c = SILENT if p == "none" else (CONSENSUS if p == row["crowd"] else DIS)
+            ax.add_patch(plt.Rectangle((xi + 0.06, ny - 1 - qi + 0.08), 0.88, 0.84,
+                                       facecolor=c, edgecolor=SURFACE, linewidth=2))
+    ax.set_xlim(0, nx); ax.set_ylim(0, ny)
+    ax.set_xticks([i + 0.5 for i in range(nx)])
+    ax.set_xticklabels(agents, rotation=32, ha="right", fontsize=8.5)
+    ax.set_yticks([ny - 1 - i + 0.5 for i in range(ny)])
+    ax.set_yticklabels([r["q"]["label"][:48] for r in rows], fontsize=8.5)
+    ax.tick_params(length=0)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.legend(handles=[mpatches.Patch(color=CONSENSUS, label="holds the crowd view"),
+                       mpatches.Patch(color=DIS, label="dissents / contrarian"),
+                       mpatches.Patch(color=SILENT, label="no stated position")],
+              frameon=False, fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.34), ncol=3)
+    ax.set_title("Who breaks from the crowd — agent positions on the contested questions",
+                 loc="left", fontsize=13, color=INK, weight="bold", pad=14)
+    fig.tight_layout()
+    fig.savefig(out / "dissent_position_map.png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(9.5, 0.75 * len(rows) + 1.6))
+    y = list(range(len(rows)))[::-1]
+    ax.barh(y, [r["crowd_n"] for r in rows], color=CONSENSUS, height=0.55,
+            label="crowd view", edgecolor=SURFACE, linewidth=2)
+    ax.barh(y, [r["dis_n"] for r in rows], left=[r["crowd_n"] for r in rows],
+            color=DIS, height=0.55, label="dissenters", edgecolor=SURFACE, linewidth=2)
+    for yi, r in zip(y, rows):
+        dis_pole = "b" if r["crowd"] == "a" else "a"
+        ax.text(r["crowd_n"] + r["dis_n"] + 0.15, yi,
+                "“" + r["q"][f"pole_{dis_pole}"][:60] + "”",
+                va="center", fontsize=8.5, color=INK2)
+    ax.set_yticks(y)
+    ax.set_yticklabels([r["q"]["label"][:40] for r in rows], fontsize=9)
+    ax.set_xlabel("agents with a stated position")
+    ax.grid(axis="y", visible=False); ax.grid(axis="x", color=GRID, linewidth=0.6)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    ax.legend(frameon=False, fontsize=9, loc="lower right")
+    ax.set_title("How contested is each question — and what the dissenters say",
+                 loc="left", fontsize=13, color=INK, weight="bold")
+    fig.tight_layout()
+    fig.savefig(out / "dissent_contested_questions.png", dpi=180)
+    plt.close(fig)
+
+    lines = ["# Controversial & non-consensus ideas (auto-generated)\n",
+             "*Contested questions discovered and positions classified by "
+             f"{os.environ.get('DISSENT_LLM_MODEL', 'llama3.1')}; verify against "
+             "`all_agent_texts.md` before quoting.*\n",
+             "![Position map](dissent_position_map.png)\n",
+             "![Contested questions](dissent_contested_questions.png)\n"]
+    for r in rows:
+        q = r["q"]
+        dis_pole = "b" if r["crowd"] == "a" else "a"
+        lines.append(f"## {q['label']}")
+        lines.append(f"- **Crowd view** ({r['crowd_n']}): {q['pole_' + r['crowd']]}")
+        lines.append(f"- **Dissent** ({r['dis_n']}): {q['pole_' + dis_pole]}")
+        lines.append(f"- **Dissenters:** {', '.join(r['dissenters']) or '—'}\n")
+    (out / "DISSENT_IDEAS.md").write_text("\n".join(lines), encoding="utf-8")
+
+    # optional Word export
+    import shutil, subprocess
+    pandoc = shutil.which("pandoc") or os.path.expandvars(r"%LOCALAPPDATA%\Pandoc\pandoc.exe")
+    if pandoc and os.path.isfile(pandoc):
+        try:
+            subprocess.run([pandoc, str(out / "DISSENT_IDEAS.md"), "-f", "gfm", "-t", "docx",
+                            "-o", str(out / "DISSENT_IDEAS.docx"),
+                            f"--resource-path={out}"], check=True, timeout=120)
+        except Exception as e:
+            print(f"[ideas] docx export skipped: {e}")
+    print(f"[ideas] {len(rows)} contested questions, positions for {len(agents)} agents")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("sim_id")
     ap.add_argument("--workspace", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--no-ideas", action="store_true",
+                    help="skip the LLM-assisted controversial-ideas layer")
     args = ap.parse_args()
 
     sim = find_sim(args.sim_id, args.workspace)
@@ -211,6 +378,9 @@ def main():
     (out / "DISSENT.md").write_text("\n".join(lines), encoding="utf-8")
     print(f"dissent report written to {out}")
     print(f"grounded={tot_g} fabricated={tot_f} agents={len(per_agent)} items={len(items)}")
+
+    if not args.no_ideas:
+        ideas_layer(items, out)
 
 
 if __name__ == "__main__":
